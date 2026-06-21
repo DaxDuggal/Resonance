@@ -1,0 +1,14 @@
+# Godot-specific ignores
+.godot/
+.import/
+export_preset.cfg
+build/
+/android/
+
+# Mono/C# specifics (if using the .NET version)
+.mono/
+data_*/
+mono_crash_*.json
+*.csproj
+*.sln
+

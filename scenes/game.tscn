@@ -1,0 +1,32 @@
+[gd_scene format=3 uid="uid://cnc0fnb31ahl3"]
+
+[ext_resource type="PackedScene" uid="uid://chchtg3bl6325" path="res://scenes/player.tscn" id="1_uwrxv"]
+
+[sub_resource type="WorldBoundaryShape2D" id="WorldBoundaryShape2D_ykoa8"]
+
+[sub_resource type="PhysicsMaterial" id="PhysicsMaterial_ykoa8"]
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_m3b8f"]
+
+[node name="game" type="Node2D" unique_id=103970395]
+position = Vector2(4, 0)
+
+[node name="Camera2D" type="Camera2D" parent="." unique_id=1494614660]
+zoom = Vector2(4, 4)
+position_smoothing_enabled = true
+rotation_smoothing_enabled = true
+
+[node name="StaticBody2D" type="StaticBody2D" parent="." unique_id=1273954516]
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="StaticBody2D" unique_id=333321988]
+shape = SubResource("WorldBoundaryShape2D_ykoa8")
+
+[node name="player" parent="." unique_id=1802150828 instance=ExtResource("1_uwrxv")]
+position = Vector2(0, -13)
+
+[node name="StaticBody2D2" type="StaticBody2D" parent="." unique_id=946813192]
+physics_material_override = SubResource("PhysicsMaterial_ykoa8")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="StaticBody2D2" unique_id=1894698866]
+position = Vector2(47, -12)
+shape = SubResource("RectangleShape2D_m3b8f")
