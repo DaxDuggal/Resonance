@@ -18,7 +18,7 @@ const FALL_GRAVITY_MULT = 1.5  # Higher = snappier falls (1.5–2.2)
 # Coyote Time
 const COYOTE_TIME = 0.15
 var coyote_timer: float = 0.0
-
+ 
 # Jump Buffering
 const JUMP_BUFFER_TIME = 0.1
 var jump_buffer_timer: float = 0.0
@@ -35,6 +35,11 @@ var dash_direction: Vector2 = Vector2.ZERO
 var facing_direction: int = 1  # 1 for right, -1 for left
 var was_dashing_on_land: bool = false
 
+# Post-dash recovery (smooth upward momentum after up-diagonal dash)
+const POST_DASH_GRAVITY_MULT = 3.0
+const POST_DASH_RECOVERY_TIME = 0.20
+var post_dash_recovery_timer: float = 0.0
+
 # Landing lag
 const LANDING_LAG_TIME = 0.2
 const LANDING_MIN_FALL_SPEED = 200.0
@@ -48,7 +53,10 @@ func _physics_process(delta: float) -> void:
 	# ========== GRAVITY ==========
 	if not is_on_floor():
 		var gravity_mult := 1.0
-		if velocity.y > 0:
+		if post_dash_recovery_timer > 0:
+			gravity_mult = POST_DASH_GRAVITY_MULT
+			post_dash_recovery_timer -= delta
+		elif velocity.y > 0:
 			gravity_mult = FALL_GRAVITY_MULT
 		velocity.y += GRAVITY * gravity_mult * delta
 	
@@ -125,6 +133,9 @@ func _physics_process(delta: float) -> void:
 		if dash_timer <= 0:
 			is_dashing = false
 			velocity.x = dash_direction.x * DASH_END_SPEED
+			if dash_direction.y < 0:
+				velocity.y *= 0.5
+				post_dash_recovery_timer = POST_DASH_RECOVERY_TIME
 	else:
 		# ========== HORIZONTAL MOVEMENT ==========
 		var direction := Input.get_axis("ui_left", "ui_right")
