@@ -9,10 +9,7 @@
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_m3b8f"]
 
 [node name="game" type="Node2D" unique_id=103970395]
-<<<<<<< HEAD
 position = Vector2(4, 0)
-=======
->>>>>>> e174ccc (First commit, add player movement)
 
 [node name="Camera2D" type="Camera2D" parent="." unique_id=1494614660]
 zoom = Vector2(4, 4)
