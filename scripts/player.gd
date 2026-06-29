@@ -21,6 +21,10 @@ var facing_direction: int = 1  # 1 for right, -1 for left
 var was_dashing_on_land: bool = false
 var dash_speed: float = DASH_SPEED # Balance supers and hypers
 
+# Wavedash
+const WAVEDASH_INPUT_WINDOW = 0.10  # Percent of a second
+var wavedash_window_timer: float = 0.0
+
 # Post-dash recovery (smooth upward momentum after up-diagonal dash)
 const POST_DASH_GRAVITY_MULT = 1.0
 const POST_DASH_RECOVERY_TIME = 0.3
@@ -76,7 +80,28 @@ func _physics_process(delta: float) -> void:
 		dash_timer -= delta
 		velocity = dash_direction * dash_speed
 		
-		if dash_timer <= 0:
+		# Wavedash detection
+		if dash_direction.y > 0 and is_on_floor() and not was_on_floor:
+			wavedash_window_timer = WAVEDASH_INPUT_WINDOW
+	
+			# Wavedash triggers if jump is pressed within the window
+		if wavedash_window_timer > 0 and Input.is_action_just_pressed("ui_accept"):
+			is_dashing = false
+			
+			var wavedash_speed = dash_speed * 1.3
+			var wavedash_jump_velocity = -200.0
+			
+			var input_x = Input.get_axis("ui_left", "ui_right")
+			var wavedash_direction = input_x if input_x != 0 else dash_direction.x
+			
+			velocity.x = wavedash_direction * wavedash_speed
+			velocity.y = wavedash_jump_velocity
+			post_dash_recovery_timer = POST_DASH_RECOVERY_TIME 
+			coyote_timer = 0.0
+			dash_available = true
+			wavedash_window_timer = 0.0
+		
+		elif dash_timer <= 0:
 			is_dashing = false
 			velocity.x = dash_direction.x * DASH_END_SPEED
 			if dash_direction.y < 0:
