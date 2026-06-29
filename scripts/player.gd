@@ -93,7 +93,7 @@ func _physics_process(delta: float) -> void:
 		landing_lag_timer = 0.0
 		dash_available = true
 		is_dashing = false
-		# Variable Jump Height
+	# Variable Jump Height
 	if Input.is_action_just_released("ui_accept") and velocity.y < 0 and not is_dashing:
 		velocity.y *= JUMP_CUT_MULTIPLIER
 	
@@ -124,9 +124,7 @@ func _physics_process(delta: float) -> void:
 		
 		if dash_timer <= 0:
 			is_dashing = false
-			# Carry-over: keep momentum instead of snapping to walk speed
 			velocity.x = dash_direction.x * DASH_END_SPEED
-			coyote_timer = COYOTE_TIME
 	else:
 		# ========== HORIZONTAL MOVEMENT ==========
 		var direction := Input.get_axis("ui_left", "ui_right")
