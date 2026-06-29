@@ -4,7 +4,7 @@ extends CharacterBody2D
 const MAX_SPEED = 140.0
 const MAX_AIR_SPEED = 120.0
 const ACCELERATION = 1200.0
-const AIR_ACCELERATION = 1000.0
+const AIR_ACCELERATION = 900.0
 const FRICTION = 1200.0
 const JUMP_VELOCITY = -280.0
 const GRAVITY = 600.0
