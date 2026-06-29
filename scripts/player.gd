@@ -1,28 +1,13 @@
 extends CharacterBody2D
 
 # Movement constants
-const MAX_SPEED = 140.0
-const MAX_AIR_SPEED = 120.0
+const MAX_SPEED = 150.0
+const MAX_AIR_SPEED = 140.0
 const ACCELERATION = 1200.0
 const AIR_ACCELERATION = 900.0
 const FRICTION = 1200.0
-const JUMP_VELOCITY = -280.0
-const GRAVITY = 600.0
-
-# Variable Jump Height
-const JUMP_CUT_MULTIPLIER = 0.6  # Lower = shorter min jump (0.0–0.5)
-
-# Assymetric Gravity
-const FALL_GRAVITY_MULT = 1.5  # Higher = snappier falls (1.5–2.2)
-
-# Coyote Time
-const COYOTE_TIME = 0.15
-var coyote_timer: float = 0.0
- 
-# Jump Buffering
-const JUMP_BUFFER_TIME = 0.1
-var jump_buffer_timer: float = 0.0
-var jump_buffered: bool = false
+const JUMP_VELOCITY = -290.0
+const GRAVITY = 900.0
 
 # Dash
 const DASH_SPEED = 350.0
@@ -34,11 +19,27 @@ var dash_timer: float = 0.0
 var dash_direction: Vector2 = Vector2.ZERO
 var facing_direction: int = 1  # 1 for right, -1 for left
 var was_dashing_on_land: bool = false
+var dash_speed: float = DASH_SPEED # Balance supers and hypers
 
 # Post-dash recovery (smooth upward momentum after up-diagonal dash)
-const POST_DASH_GRAVITY_MULT = 3.0
-const POST_DASH_RECOVERY_TIME = 0.20
+const POST_DASH_GRAVITY_MULT = 1.0
+const POST_DASH_RECOVERY_TIME = 0.3
 var post_dash_recovery_timer: float = 0.0
+
+# Variable Jump Height
+const JUMP_CUT_MULTIPLIER = 0.5  # Lower = shorter min jump
+
+# Coyote Time
+const COYOTE_TIME = 0.15
+var coyote_timer: float = 0.0
+ 
+# Jump Buffering
+const JUMP_BUFFER_TIME = 0.1
+var jump_buffer_timer: float = 0.0
+var jump_buffered: bool = false
+
+# Assymetric Gravity
+const FALL_GRAVITY_MULT = 1.2  # Higher = snappier falls (1.5–2.2)
 
 # Landing lag
 const LANDING_LAG_TIME = 0.2
@@ -50,6 +51,72 @@ var fall_speed: float = 0.0
 
 
 func _physics_process(delta: float) -> void:
+	
+	# ========== DASH ==========
+	if Input.is_action_just_pressed("ui_shift") and dash_available and not is_dashing:
+		# Read both axes for 8-direction dash
+		var dx := Input.get_axis("ui_left", "ui_right")
+		var dy := Input.get_axis("ui_up", "ui_down")  # up is negative in Godot
+		var dir := Vector2(dx, dy)
+		
+		if dir == Vector2.ZERO:
+			# No input: dash in the direction you're facing
+			dir = Vector2(facing_direction, 0)
+		elif dx != 0:
+			# Update facing direction when moving horizontally
+				facing_direction = int(sign(dx))
+		
+		dash_direction = dir.normalized()  # normalize so diagonals aren't faster
+		is_dashing = true
+		dash_timer = DASH_DURATION
+		dash_available = false
+		landing_lag_timer = 0.0
+	
+	if is_dashing:
+		dash_timer -= delta
+		velocity = dash_direction * dash_speed
+		
+		if dash_timer <= 0:
+			is_dashing = false
+			velocity.x = dash_direction.x * DASH_END_SPEED
+			if dash_direction.y < 0:
+				velocity.y *= 0.5
+				post_dash_recovery_timer = POST_DASH_RECOVERY_TIME
+	else:
+		
+		# ========== HORIZONTAL MOVEMENT ==========
+		var direction := Input.get_axis("ui_left", "ui_right")
+		var accel := ACCELERATION if is_on_floor() else AIR_ACCELERATION
+		var fric := FRICTION if is_on_floor() else AIR_ACCELERATION
+		
+		# Update facing direction when moving
+		if direction != 0:
+			facing_direction = int(sign(direction))
+		
+		# During landing lag, soften control instead of forcing a stop
+		if landing_lag_timer > 0:
+			accel *= LANDING_CONTROL_FACTOR
+			fric *= LANDING_CONTROL_FACTOR
+		
+		var max_spd: float = MAX_SPEED if is_on_floor() else MAX_AIR_SPEED
+		if direction != 0:
+			velocity.x = move_toward(velocity.x, direction * max_spd, accel * delta)
+		else:
+			velocity.x = move_toward(velocity.x, 0, fric * delta)
+	
+	# ========== JUMP EXECUTION ==========
+	# Execute immediately if we land/can jump, regardless of when buffered
+	if jump_buffered and (is_on_floor() or coyote_timer > 0) and not (is_dashing and not is_on_floor()):
+		velocity.y = JUMP_VELOCITY
+		jump_buffered = false
+		coyote_timer = 0.0
+		landing_lag_timer = 0.0
+		dash_available = true
+		is_dashing = false
+	# Variable Jump Height
+	if Input.is_action_just_released("ui_accept") and velocity.y < 0 and not is_dashing:
+		velocity.y *= JUMP_CUT_MULTIPLIER
+	
 	# ========== GRAVITY ==========
 	if not is_on_floor():
 		var gravity_mult := 1.0
@@ -89,73 +156,6 @@ func _physics_process(delta: float) -> void:
 		jump_buffer_timer -= delta  # Timer runs down always (even during dash)
 		if jump_buffer_timer <= 0:
 			jump_buffered = false
-			print("BUFFER EXPIRED")
-	
-	
-	# ========== JUMP EXECUTION ==========
-	# Execute immediately if we land/can jump, regardless of when buffered
-	if jump_buffered and (is_on_floor() or coyote_timer > 0) and not (is_dashing and not is_on_floor()):
-		velocity.y = JUMP_VELOCITY
-		jump_buffered = false
-		coyote_timer = 0.0
-		landing_lag_timer = 0.0
-		dash_available = true
-		is_dashing = false
-	# Variable Jump Height
-	if Input.is_action_just_released("ui_accept") and velocity.y < 0 and not is_dashing:
-		velocity.y *= JUMP_CUT_MULTIPLIER
-	
-	# ========== DASH ==========
-	if Input.is_action_just_pressed("ui_shift") and dash_available and not is_dashing:
-		# Read both axes for 8-direction dash
-		var dx := Input.get_axis("ui_left", "ui_right")
-		var dy := Input.get_axis("ui_up", "ui_down")  # up is negative in Godot
-		var dir := Vector2(dx, dy)
-		
-		if dir == Vector2.ZERO:
-			# No input: dash in the direction you're facing
-			dir = Vector2(facing_direction, 0)
-		else:
-			# Update facing direction when moving horizontally
-			if dx != 0:
-				facing_direction = int(sign(dx))
-		
-		dash_direction = dir.normalized()  # normalize so diagonals aren't faster
-		is_dashing = true
-		dash_timer = DASH_DURATION
-		dash_available = false
-		landing_lag_timer = 0.0
-	
-	if is_dashing:
-		dash_timer -= delta
-		velocity = dash_direction * DASH_SPEED
-		
-		if dash_timer <= 0:
-			is_dashing = false
-			velocity.x = dash_direction.x * DASH_END_SPEED
-			if dash_direction.y < 0:
-				velocity.y *= 0.5
-				post_dash_recovery_timer = POST_DASH_RECOVERY_TIME
-	else:
-		# ========== HORIZONTAL MOVEMENT ==========
-		var direction := Input.get_axis("ui_left", "ui_right")
-		var accel := ACCELERATION if is_on_floor() else AIR_ACCELERATION
-		var fric := FRICTION if is_on_floor() else AIR_ACCELERATION
-		
-		# Update facing direction when moving
-		if direction != 0:
-			facing_direction = int(sign(direction))
-		
-		# During landing lag, soften control instead of forcing a stop
-		if landing_lag_timer > 0:
-			accel *= LANDING_CONTROL_FACTOR
-			fric *= LANDING_CONTROL_FACTOR
-		
-		var max_spd: float = MAX_SPEED if is_on_floor() else MAX_AIR_SPEED
-		if direction != 0:
-			velocity.x = move_toward(velocity.x, direction * max_spd, accel * delta)
-		else:
-			velocity.x = move_toward(velocity.x, 0, fric * delta)
 	
 	# ========== APPLY MOVEMENT ==========
 	fall_speed = velocity.y
