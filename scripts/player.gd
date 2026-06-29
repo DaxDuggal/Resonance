@@ -1,58 +1,19 @@
 extends CharacterBody2D
 
 # Movement constants
-const MAX_SPEED = 120.0
-<<<<<<< HEAD
-const ACCELERATION = 1200.0  # High = snappy response (Celeste-like)
-<<<<<<< HEAD
-const AIR_ACCELERATION = 1500.0  # Lower than ground = less control in air
-const FRICTION = 1200.0      # High = stops quickly (grounded feel)
-const JUMP_VELOCITY = -280.0  # Slightly lower = less floaty
-
-
-# Landong lag: Unless the player dashes into the groun, they'll suffer a short bit of landing lag
-const LANDING_LAG_TIME = 0.10 # How long the lag lasts (~100ms)
-const LANDING_MIN_FALL_SPEED = 200.0  # Only lag if falling faster than this
-var landing_lag_timer: float = 0.0
-var was_on_floor: bool = false     # Tracks floor state from last frame
-var fall_speed: float = 0.0
-
-# Coyote Time: Allows jumping for a short time AFTER leaving the platform
-# Celeste uses ~0.04-0.06 for tight feel (not too forgiving)
-const COYOTE_TIME = 0.15 # Tighter than ori/smb (0.05 = 50ms)
-=======
-const FRICTION = 1200.0      # High = stops quickly (grounded feel)
-const JUMP_VELOCITY = -280.0  # Slightly lower = less floaty
-
-# Coyote Time: Allows jumping for a short time AFTER leaving the platform
-# Celeste uses ~0.04-0.06 for tight feel (not too forgiving)
-const COYOTE_TIME = 0.15  # Tighter than ori/smb (0.05 = 50ms)
->>>>>>> e174ccc (First commit, add player movement)
-var coyote_timer: float = 0.0  # Tracks how long it's been since we left the floor
-=======
+const MAX_SPEED = 140.0
 const ACCELERATION = 1200.0
-const AIR_ACCELERATION = 1000.0
+const AIR_ACCELERATION = 900.0
 const FRICTION = 1200.0
 const JUMP_VELOCITY = -300.0
 const GRAVITY = 600.0
 
 # Variable Jump Height
 const JUMP_CUT_MULTIPLIER = 0.6  # Lower = shorter min jump (0.0–0.5)
->>>>>>> 1fd9559 (Add basic dash and improve player physics)
 
 # Assymetric Gravity
 const FALL_GRAVITY_MULT = 1.5  # Higher = snappier falls (1.5–2.2)
 
-<<<<<<< HEAD
-# Dash variables
-<<<<<<< HEAD
-const DASH_SPEED = 400.0  # Punchy dash speed
-const DASH_DURATION = 0.10  # Shorter dash = tighter feel
-=======
-const DASH_SPEED = 350.0  # Punchy dash speed
-const DASH_DURATION = 0.20  # Shorter dash = tighter feel
->>>>>>> e174ccc (First commit, add player movement)
-=======
 # Coyote Time
 const COYOTE_TIME = 0.15
 var coyote_timer: float = 0.0
@@ -66,7 +27,6 @@ var jump_buffered: bool = false
 const DASH_SPEED = 350.0
 const DASH_DURATION = 0.2
 const DASH_END_SPEED = 180.0   # Carry-over momentum
->>>>>>> 1fd9559 (Add basic dash and improve player physics)
 var dash_available: bool = true
 var is_dashing: bool = false
 var dash_timer: float = 0.0
@@ -91,14 +51,6 @@ func _physics_process(delta: float) -> void:
 			gravity_mult = FALL_GRAVITY_MULT
 		velocity.y += GRAVITY * gravity_mult * delta
 	
-<<<<<<< HEAD
-<<<<<<< HEAD
-	# ========== LANDING LAG ==========
-	if is_on_floor() and not was_on_floor:
-		if fall_speed >= LANDING_MIN_FALL_SPEED:
-			landing_lag_timer = LANDING_LAG_TIME
-	
-=======
 	# ========== LANDING LAG ==========
 	
 	if is_on_floor() and not was_on_floor:
@@ -106,21 +58,12 @@ func _physics_process(delta: float) -> void:
 			landing_lag_timer = LANDING_LAG_TIME
 			velocity.x *= 0.5   # shave horizontal speed on impact — THIS is what you feel
 			
->>>>>>> 1fd9559 (Add basic dash and improve player physics)
 	if landing_lag_timer > 0:
 		landing_lag_timer -= delta
 	
 	was_on_floor = is_on_floor()
 	
-<<<<<<< HEAD
-=======
->>>>>>> e174ccc (First commit, add player movement)
-	# ========== COYOTE TIME LOGIC ==========
-	# Coyote time allows you to jump briefly after walking off a platform
-	# This is a common feature in games like Celeste and makes platforming feel better
-=======
 	# ========== COYOTE TIME ==========
->>>>>>> 1fd9559 (Add basic dash and improve player physics)
 	if is_on_floor():
 		coyote_timer = COYOTE_TIME
 		dash_available = true
@@ -198,33 +141,11 @@ func _physics_process(delta: float) -> void:
 			accel *= LANDING_CONTROL_FACTOR
 			fric *= LANDING_CONTROL_FACTOR
 		
-<<<<<<< HEAD
-		# Use different accel/friction depending on whether we're grounded
-		var accel := ACCELERATION if is_on_floor() else AIR_ACCELERATION
-		var fric := FRICTION if is_on_floor() else AIR_ACCELERATION
-		
-		if landing_lag_timer > 0:
-			# During landing recovery, damp movement for that "thud"
-			velocity.x = move_toward(velocity.x, 0, fric * delta)
-		elif direction != 0:
-			velocity.x = move_toward(velocity.x, direction * MAX_SPEED, accel * delta)
-		else:
-			velocity.x = move_toward(velocity.x, 0, fric * delta)
-		
-	# ========== APPLY MOVEMENT ==========
-	# This actually moves the player and handles collisions with walls/floors
-	fall_speed = velocity.y
-=======
 		if direction != 0:
 			velocity.x = move_toward(velocity.x, direction * MAX_SPEED, accel * delta)
 		else:
 			velocity.x = move_toward(velocity.x, 0, fric * delta)
 	
 	# ========== APPLY MOVEMENT ==========
-<<<<<<< HEAD
-	# This actually moves the player and handles collisions with walls/floors
->>>>>>> e174ccc (First commit, add player movement)
-=======
 	fall_speed = velocity.y
->>>>>>> 1fd9559 (Add basic dash and improve player physics)
 	move_and_slide()
