@@ -7,7 +7,7 @@ const ACCELERATION = 1200.0
 const AIR_ACCELERATION = 900.0
 const FRICTION = 1200.0
 const JUMP_VELOCITY = -290.0
-const GRAVITY = 900.0
+const GRAVITY = 800.0
 
 # Dash
 const DASH_SPEED = 350.0
@@ -54,6 +54,15 @@ var landing_lag_timer: float = 0.0
 var was_on_floor: bool = false
 var fall_speed: float = 0.0
 
+# Wall Cling
+const WALL_CLING_GRAVITY_MULT = 0.4  # Slows fall speed when on wall
+var is_next_to_wall: bool = false
+var wall_normal: Vector2 = Vector2.ZERO 
+
+# Wall Bounce
+const WALL_BOUNCE_VELOCITY = -550.0  # Upward velocity
+const WALL_BOUNCE_PUSH_FORCE = 300.0  # Push away from wall
+var wall_bounce_window_timer: float = 0.0
 
 func _physics_process(delta: float) -> void:
 	
@@ -82,7 +91,7 @@ func _physics_process(delta: float) -> void:
 		velocity = dash_direction * dash_speed
 		
 	# ========== WAVEDASH ==========
-		if dash_direction.y > 0 and is_on_floor() and not was_on_floor:
+		if dash_direction.y > 0 and dash_direction.x != 0 and is_on_floor():
 			wavedash_window_timer = WAVEDASH_INPUT_WINDOW
 			wavedash_input_direction = Input.get_axis("ui_left", "ui_right")
 	
@@ -91,7 +100,7 @@ func _physics_process(delta: float) -> void:
 			is_dashing = false
 			
 			var wavedash_speed = dash_speed * 1.3
-			var wavedash_jump_velocity = -200.0
+			var wavedash_jump_velocity = -250.0
 			
 			var input_x = Input.get_axis("ui_left", "ui_right")
 			var wavedash_direction = input_x if input_x != 0 else dash_direction.x
@@ -153,6 +162,11 @@ func _physics_process(delta: float) -> void:
 			post_dash_recovery_timer -= delta
 		elif velocity.y > 0:
 			gravity_mult = FALL_GRAVITY_MULT
+		
+		# ========== WALL CLING ==========
+		if is_next_to_wall and velocity.y > 0 and ((wall_normal.x < 0 and velocity.x > 0) or (wall_normal.x > 0 and velocity.x < 0)): # +
+			gravity_mult *= WALL_CLING_GRAVITY_MULT # +
+		
 		velocity.y += GRAVITY * gravity_mult * delta
 	
 	# ========== LANDING LAG ==========
@@ -167,6 +181,30 @@ func _physics_process(delta: float) -> void:
 	
 	was_on_floor = is_on_floor()
 	
+	# ========== WALL DETECTION ==========
+	# Check if next to a wall
+	var collision_count = get_slide_collision_count()
+	is_next_to_wall = false
+	if collision_count > 0:
+		for i in range(collision_count):
+			var collision = get_slide_collision(i)
+			var normal = collision.get_normal()
+			# Wall collision is when normal is mostly horizontal
+			if abs(normal.x) > 0.5 and abs(normal.y) < 0.5:
+				is_next_to_wall = true
+				wall_normal = normal
+				break 
+	
+	# ========== WALL BOUNCE ==========
+	if Input.is_action_just_pressed("ui_accept") and is_next_to_wall and not is_on_floor() and is_dashing and dash_direction.y < 0:
+		wall_bounce_window_timer = 0.2
+		var push_direction = int(sign(wall_normal.x))
+		velocity.x = push_direction * WALL_BOUNCE_PUSH_FORCE
+		velocity.y = WALL_BOUNCE_VELOCITY
+		jump_buffered = false
+		dash_available = true
+		is_dashing = false
+	
 	# ========== COYOTE TIME ==========
 	if is_on_floor():
 		coyote_timer = COYOTE_TIME
@@ -176,7 +214,7 @@ func _physics_process(delta: float) -> void:
 	
 	# ========== JUMP BUFFER ==========
 	if Input.is_action_just_pressed("ui_accept"):
-		if not (is_dashing and not is_on_floor()):
+		if not (is_dashing and not is_on_floor()) or is_next_to_wall: # +
 			jump_buffered = true
 			jump_buffer_timer = JUMP_BUFFER_TIME
 	
