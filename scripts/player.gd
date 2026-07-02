@@ -6,8 +6,8 @@ const MAX_AIR_SPEED = 140.0
 const ACCELERATION = 1200.0
 const AIR_ACCELERATION = 900.0
 const FRICTION = 1200.0
-const JUMP_VELOCITY = -290.0
-const GRAVITY = 800.0
+const JUMP_VELOCITY = -300.0
+const GRAVITY = 750.0
 
 # Dash
 const DASH_SPEED = 350.0
@@ -20,11 +20,15 @@ var dash_direction: Vector2 = Vector2.ZERO
 var facing_direction: int = 1  # 1 for right, -1 for left
 var was_dashing_on_land: bool = false
 var dash_speed: float = DASH_SPEED # Balance supers and hypers
+const DASH_COOLDOWN = 0.01  # Minimum time between dashes (Prevent tas from dashing too fast)
+var dash_cooldown_timer: float = 0.0
 
 # Wavedash
 const WAVEDASH_INPUT_WINDOW = 0.20  # Percent of a second
 var wavedash_window_timer: float = 0.0
 var wavedash_input_direction: float = 0.0
+const WAVEDASH_BUFFER_TIME = 0.2  # Extra buffer time after wavedash
+var wavedash_just_performed: bool = false
 
 # Post-dash recovery (smooth upward momentum after up-diagonal dash)
 const POST_DASH_GRAVITY_MULT = 1.0
@@ -32,7 +36,7 @@ const POST_DASH_RECOVERY_TIME = 0.3
 var post_dash_recovery_timer: float = 0.0
 
 # Variable Jump Height
-const JUMP_CUT_MULTIPLIER = 0.5  # Lower = shorter min jump
+const JUMP_CUT_MULTIPLIER = 0.4  # Lower = shorter min jump
 
 # Coyote Time
 const COYOTE_TIME = 0.15
@@ -60,14 +64,14 @@ var is_next_to_wall: bool = false
 var wall_normal: Vector2 = Vector2.ZERO 
 
 # Wall Bounce
-const WALL_BOUNCE_VELOCITY = -550.0  # Upward velocity
+const WALL_BOUNCE_VELOCITY = -500.0  # Upward velocity
 const WALL_BOUNCE_PUSH_FORCE = 300.0  # Push away from wall
 var wall_bounce_window_timer: float = 0.0
 
 func _physics_process(delta: float) -> void:
 	
 	# ========== DASH ==========
-	if Input.is_action_just_pressed("ui_shift") and dash_available and not is_dashing:
+	if Input.is_action_just_pressed("ui_shift") and dash_available and not is_dashing and dash_cooldown_timer <= 0:
 		# Read both axes for 8-direction dash
 		var dx := Input.get_axis("ui_left", "ui_right")
 		var dy := Input.get_axis("ui_up", "ui_down")  # up is negative in Godot
@@ -80,11 +84,12 @@ func _physics_process(delta: float) -> void:
 			# Update facing direction when moving horizontally
 				facing_direction = int(sign(dx))
 		
-		dash_direction = dir.normalized()  # normalize so diagonals aren't faster
+		dash_direction = dir.normalized()  # normalize diagonals aren't faster
 		is_dashing = true
 		dash_timer = DASH_DURATION
 		dash_available = false
 		landing_lag_timer = 0.0
+		dash_cooldown_timer = DASH_COOLDOWN
 	
 	if is_dashing:
 		dash_timer -= delta
@@ -214,14 +219,18 @@ func _physics_process(delta: float) -> void:
 	
 	# ========== JUMP BUFFER ==========
 	if Input.is_action_just_pressed("ui_accept"):
-		if not (is_dashing and not is_on_floor()) or is_next_to_wall: # +
+		if not (is_dashing and not is_on_floor()) or is_next_to_wall:
 			jump_buffered = true
-			jump_buffer_timer = JUMP_BUFFER_TIME
+			jump_buffer_timer = WAVEDASH_BUFFER_TIME if wavedash_just_performed else JUMP_BUFFER_TIME
 	
 	if jump_buffered:
-		jump_buffer_timer -= delta  # Timer runs down always (even during dash)
+		jump_buffer_timer -= delta
 		if jump_buffer_timer <= 0:
 			jump_buffered = false
+			wavedash_just_performed = false
+	
+	if dash_cooldown_timer > 0:
+		dash_cooldown_timer -= delta
 	
 	# ========== APPLY MOVEMENT ==========
 	fall_speed = velocity.y
