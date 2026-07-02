@@ -1,6 +1,7 @@
 extends CharacterBody2D
 
 # Movement constants
+@onready var sprite := $AnimatedSprite2D
 const MAX_SPEED = 150.0
 const MAX_AIR_SPEED = 140.0
 const ACCELERATION = 1200.0
@@ -21,8 +22,6 @@ var dash_direction: Vector2 = Vector2.ZERO
 var facing_direction: int = 1  # 1 for right, -1 for left
 var was_dashing_on_land: bool = false
 var dash_speed: float = DASH_SPEED # Balance supers and hypers
-const DASH_COOLDOWN = 0.01  # Minimum time between dashes (Prevent tas from dashing too fast)
-var dash_cooldown_timer: float = 0.0
 
 # Wavedash
 const WAVEDASH_INPUT_WINDOW = 0.20  # Percent of a second
@@ -48,6 +47,10 @@ const JUMP_BUFFER_TIME = 0.1
 var jump_buffer_timer: float = 0.0
 var jump_buffered: bool = false
 
+# Apex Hang
+const APEX_THRESHOLD = 40.0     # How close to the top of the jump counts as "apex"
+const APEX_GRAVITY_MULT = 0.75   # Lower = floatier apex
+
 # Assymetric Gravity
 const FALL_GRAVITY_MULT = 1.2  # Higher = snappier falls (1.5–2.2)
 
@@ -72,7 +75,7 @@ var wall_bounce_window_timer: float = 0.0
 func _physics_process(delta: float) -> void:
 	
 	# ========== DASH ==========
-	if Input.is_action_just_pressed("ui_shift") and dash_available and not is_dashing and dash_cooldown_timer <= 0:
+	if Input.is_action_just_pressed("ui_shift") and dash_available and not is_dashing:
 		# Read both axes for 8-direction dash
 		var dx := Input.get_axis("ui_left", "ui_right")
 		var dy := Input.get_axis("ui_up", "ui_down")  # up is negative in Godot
@@ -90,7 +93,6 @@ func _physics_process(delta: float) -> void:
 		dash_timer = DASH_DURATION
 		dash_available = false
 		landing_lag_timer = 0.0
-		dash_cooldown_timer = DASH_COOLDOWN
 	
 	if is_dashing:
 		dash_timer -= delta
@@ -117,7 +119,8 @@ func _physics_process(delta: float) -> void:
 			coyote_timer = 0.0
 			dash_available = true
 			wavedash_window_timer = 0.0
-	
+			wavedash_just_performed = true
+			
 	# ========== DASH ==========
 		elif dash_timer <= 0:
 			is_dashing = false
@@ -157,7 +160,7 @@ func _physics_process(delta: float) -> void:
 		dash_available = true
 		is_dashing = false
 	# Variable Jump Height
-	if Input.is_action_just_released("ui_accept") and velocity.y < 0 and not is_dashing:
+	if Input.is_action_just_released("ui_accept") and velocity.y < 0 and not is_dashing and velocity.y < -100:
 		velocity.y *= JUMP_CUT_MULTIPLIER
 	
 	# ========== GRAVITY ==========
@@ -166,16 +169,19 @@ func _physics_process(delta: float) -> void:
 		if post_dash_recovery_timer > 0:
 			gravity_mult = POST_DASH_GRAVITY_MULT
 			post_dash_recovery_timer -= delta
+		elif abs(velocity.y) < APEX_THRESHOLD:
+			gravity_mult = APEX_GRAVITY_MULT
 		elif velocity.y > 0:
 			gravity_mult = FALL_GRAVITY_MULT
 		
 		# ========== WALL CLING ==========
 		if is_next_to_wall and velocity.y > 0 and ((wall_normal.x < 0 and velocity.x > 0) or (wall_normal.x > 0 and velocity.x < 0)): # +
 			gravity_mult *= WALL_CLING_GRAVITY_MULT # +
-		
+			velocity.y = min(velocity.y, 120.0)
+			
 		velocity.y += GRAVITY * gravity_mult * delta
 		velocity.y = min(velocity.y, MAX_FALL_SPEED)
-	
+		
 	# ========== LANDING LAG ==========
 	
 	if is_on_floor() and not was_on_floor:
@@ -211,6 +217,7 @@ func _physics_process(delta: float) -> void:
 		jump_buffered = false
 		dash_available = true
 		is_dashing = false
+		coyote_timer = 0.0
 	
 	# ========== COYOTE TIME ==========
 	if is_on_floor():
@@ -231,14 +238,11 @@ func _physics_process(delta: float) -> void:
 			jump_buffered = false
 			wavedash_just_performed = false
 	
-	if dash_cooldown_timer > 0:
-		dash_cooldown_timer -= delta
+	if wavedash_window_timer > 0:
+		wavedash_window_timer -= delta
 	
 	# ========== SPRITE FLIP ==========
-	if facing_direction == -1:
-		$AnimatedSprite2D.scale.x = -1
-	else:
-		$AnimatedSprite2D.scale.x = 1
+	sprite.flip_h = facing_direction == -1
 	
 	# ========== APPLY MOVEMENT ==========
 	fall_speed = velocity.y
