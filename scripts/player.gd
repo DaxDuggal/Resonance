@@ -8,6 +8,7 @@ const AIR_ACCELERATION = 900.0
 const FRICTION = 1200.0
 const JUMP_VELOCITY = -300.0
 const GRAVITY = 750.0
+const MAX_FALL_SPEED = 400.0  # Maximum downward velocity
 
 # Dash
 const DASH_SPEED = 350.0
@@ -173,6 +174,7 @@ func _physics_process(delta: float) -> void:
 			gravity_mult *= WALL_CLING_GRAVITY_MULT # +
 		
 		velocity.y += GRAVITY * gravity_mult * delta
+		velocity.y = min(velocity.y, MAX_FALL_SPEED)
 	
 	# ========== LANDING LAG ==========
 	
@@ -231,6 +233,12 @@ func _physics_process(delta: float) -> void:
 	
 	if dash_cooldown_timer > 0:
 		dash_cooldown_timer -= delta
+	
+	# ========== SPRITE FLIP ==========
+	if facing_direction == -1:
+		$AnimatedSprite2D.scale.x = -1
+	else:
+		$AnimatedSprite2D.scale.x = 1
 	
 	# ========== APPLY MOVEMENT ==========
 	fall_speed = velocity.y
