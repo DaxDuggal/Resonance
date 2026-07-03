@@ -1,348 +1,419 @@
 extends CharacterBody2D
+class_name Player
 
-# States
 
-enum Player {
+enum PlayerState {
 	NORMAL,
 	DASHING,
 	WALL_BOUNCING,
+	HURT,
+	DEAD
 }
 
-var state: Player = Player.NORMAL
 
-# Movement constants
-@onready var sprite := $AnimatedSprite2D
-const MAX_SPEED = 150.0
-const MAX_AIR_SPEED = 140.0
-const ACCELERATION = 1200.0
-const AIR_ACCELERATION = 900.0
-const FRICTION = 1200.0
-const AIR_FRICTION = 300.0
-const JUMP_VELOCITY = -300.0
-const CORNER_CORRECTION_PIXELS := 4
-const GRAVITY = 750.0
-const MAX_FALL_SPEED = 350.0  # Maximum downward velocity
-const FAST_FALL_GRAVITY_MULT := 1.5
-var can_fast_fall: bool = false
-
-# Dash
-const DASH_SPEED = 350.0
-const DASH_DURATION = 0.2
-const DASH_END_SPEED = 180.0   # Carry-over momentum
-var dash_available: bool = true
-var dash_timer: float = 0.0
-var dash_direction: Vector2 = Vector2.ZERO
-var facing_direction: int = 1  # 1 for right, -1 for left
-var dash_speed: float = DASH_SPEED # Balance supers and hypers
-const DASH_BUFFER_TIME = 0.1
-var dash_buffer_timer: float = 0.0
-
-# Wavedash
-const WAVEDASH_INPUT_WINDOW = 0.20  # Percent of a second
-var wavedash_window_timer: float = 0.0
-const WAVEDASH_BUFFER_TIME = 0.2  # Extra buffer time after wavedash
-var wavedash_buffer_timer: float = 0.0
-
-# Variable Jump Height
-const JUMP_CUT_MULTIPLIER = 0.4  # Lower = shorter min jump
-var jump_cut_disabled_timer: float = 0.0
-const WALL_BOUNCE_JUMP_CUT_DISABLE_TIME = 0.2
-
-# Coyote Time
-const COYOTE_TIME = 0.15
-var coyote_timer: float = 0.0
- 
-# Jump Buffering
-const JUMP_BUFFER_TIME = 0.1
-var jump_buffer_timer: float = 0.0
-var jump_buffered: bool = false
-
-# Apex Hang
-const APEX_THRESHOLD = 40.0     # How close to the top of the jump counts as "apex"
-const APEX_GRAVITY_MULT = 0.75   # Lower = floatier apex
-
-# Assymetric Gravity
-const FALL_GRAVITY_MULT = 1.2  # Higher = snappier falls (1.5–2.2)
-
-# Landing lag
-const LANDING_LAG_TIME = 0.25
-const LANDING_MIN_FALL_SPEED = 325.0
-const LANDING_CONTROL_FACTOR = 0.33    # Control during lag (0=none, 1=full)
-var landing_lag_timer: float = 0.0
-var was_on_floor: bool = false
-var fall_speed: float = 0.0
-
-# Wall Cling
-const WALL_CLING_GRAVITY_MULT = 0.4  # Slows fall speed when on wall
-var is_next_to_wall: bool = false
-var wall_normal: Vector2 = Vector2.ZERO
+var state: PlayerState = PlayerState.NORMAL
 
 
-# Wall Bounce
-const WALL_BOUNCE_VELOCITY = -325.0  # Upward velocity
-const WALL_BOUNCE_PUSH_FORCE = 200.0  # Push away from wall
-const WALL_BOUNCE_WINDOW_TIME = 0.2
-const wall_bounce_control_lock_time := 0.12
-var wall_bounce_control_lock_timer: float = 0.0
-var wall_bounce_window_timer: float = 0.0
-var wall_bounce_normal: Vector2 = Vector2.ZERO
+@onready var sprite: AnimatedSprite2D = $AnimatedSprite2D
+@onready var dash_ability: DashAbility = $Abilities/DashAbility
+
+
+# ========== MOVEMENT ==========
+
+@export_group("Movement")
+@export var max_speed := 150.0
+@export var max_air_speed := 140.0
+@export var acceleration := 1200.0
+@export var air_acceleration := 900.0
+@export var friction := 1200.0
+@export var air_friction := 300.0
+
+
+# ========== JUMP / GRAVITY ==========
+
+@export_group("Jump / Gravity")
+@export var jump_velocity := -300.0
+@export var gravity := 750.0
+@export var max_fall_speed := 400.0
+@export var jump_cut_multiplier := 0.4
+@export var apex_threshold := 40.0
+@export var apex_gravity_mult := 0.75
+@export var fall_gravity_mult := 1.2
+@export var fast_fall_gravity_mult := 1.5
+
+var jump_cut_disabled_timer := 0.0
+var can_fast_fall := false
+
+const WALL_BOUNCE_JUMP_CUT_DISABLE_TIME := 0.2
+
+
+# ========== COYOTE / BUFFER ==========
+
+@export_group("Coyote / Buffer")
+@export var coyote_time := 0.15
+@export var jump_buffer_time := 0.1
+@export var dash_buffer_time := 0.1
+
+var coyote_timer := 0.0
+var jump_buffer_timer := 0.0
+var jump_buffered := false
+var dash_buffer_timer := 0.0
+
+
+# ========== DASH ==========
+
+var dash_available := true
+var facing_direction := 1
+
+
+# ========== WAVEDASH ==========
+
+@export_group("Wavedash")
+@export var wavedash_input_window := 0.2
+@export var wavedash_buffer_time := 0.2
+@export var wavedash_speed_mult := 1.3
+@export var wavedash_jump_velocity := -250.0
+
+var wavedash_window_timer := 0.0
+var wavedash_buffer_timer := 0.0
+
+
+# ========== LANDING LAG ==========
+
+@export_group("Landing Lag")
+@export var landing_lag_time := 0.18
+@export var landing_min_fall_speed := 350.0
+@export var landing_control_factor := 0.5
+
+var landing_lag_timer := 0.0
+var was_on_floor := false
+var fall_speed := 0.0
+
+
+# ========== WALL CLING ==========
+
+@export_group("Wall")
+@export var wall_cling_gravity_mult := 0.4
+@export var wall_cling_max_fall_speed := 120.0
+
+var is_next_to_wall := false
+var wall_normal := Vector2.ZERO
+
+
+# ========== WALL BOUNCE ==========
+
+@export var wall_bounce_velocity := -350.0
+@export var wall_bounce_push_force := 300.0
+@export var wall_bounce_window_time := 0.2
+@export var wall_bounce_control_lock_time := 0.12
+
+var wall_bounce_window_timer := 0.0
+var wall_bounce_normal := Vector2.ZERO
+var wall_bounce_control_lock_timer := 0.0
+
+
+# ========== ASSISTS ==========
+
+@export_group("Assists")
+@export var corner_correction_pixels := 4
+
 
 func _physics_process(delta: float) -> void:
-	
 	var input_x := Input.get_axis("move_left", "move_right")
 	var input_y := Input.get_axis("move_up", "move_down")
+
 	var jump_pressed := Input.is_action_just_pressed("jump")
 	var jump_released := Input.is_action_just_released("jump")
 	var dash_pressed := Input.is_action_just_pressed("dash")
-	var grounded := is_on_floor()
-	
+
 	var jump_consumed := false
-	
+	var grounded := is_on_floor()
+
+
+	# ========== INPUT BUFFERS ==========
+
 	if dash_pressed:
-		dash_buffer_timer = DASH_BUFFER_TIME
-	
-	# ========== DASH ==========
-	if dash_buffer_timer > 0.0 and dash_available and state != Player.DASHING:
-		start_dash(Vector2(input_x, input_y))
-	
-	if state == Player.DASHING:
-		dash_timer -= delta
-		velocity = dash_direction * dash_speed
-		
-	# ========== WAVEDASH ==========
-		if dash_direction.y > 0 and dash_direction.x != 0 and grounded:
-			wavedash_window_timer = WAVEDASH_INPUT_WINDOW
-	
-			# Wavedash triggers if jump is pressed within the window
-		if wavedash_window_timer > 0 and jump_pressed and not jump_consumed:
-			state = Player.NORMAL
-			
-			var wavedash_speed = dash_speed * 1.1
-			var wavedash_jump_velocity = -250.0
-			
-			var wavedash_direction = input_x if input_x != 0 else dash_direction.x
-			
-			velocity.x = wavedash_direction * wavedash_speed
-			velocity.y = wavedash_jump_velocity
-			coyote_timer = 0.0
-			dash_available = true
-			wavedash_window_timer = 0.0
-			wavedash_buffer_timer = WAVEDASH_BUFFER_TIME
-			jump_consumed = true
-			jump_buffered = false
-	
-	# ========== DASH ==========
-		elif dash_timer <= 0:
-			end_dash()
+		dash_buffer_timer = dash_buffer_time
+
+	if jump_pressed:
+		if not (state == PlayerState.DASHING and not grounded) or is_next_to_wall:
+			jump_buffered = true
+			jump_buffer_timer = wavedash_buffer_time if wavedash_buffer_timer > 0.0 else jump_buffer_time
+
+
+	# ========== DASH START ==========
+
+	if dash_buffer_timer > 0.0 and dash_available and state != PlayerState.DASHING:
+		var dash_dir := Vector2(input_x, input_y)
+
+		if dash_dir == Vector2.ZERO:
+			dash_dir = Vector2(facing_direction, 0)
+
+		if dash_dir.x != 0.0:
+			facing_direction = int(sign(dash_dir.x))
+
+		if dash_ability.can_start(self):
+			dash_ability.start_dash(self, dash_dir)
+			dash_buffer_timer = 0.0
+
+
+	# ========== DASH / NORMAL MOVEMENT ==========
+
+	if state == PlayerState.DASHING:
+		dash_ability.update_dash(self, delta)
+
+		if dash_ability.allows_wavedash:
+			var wavedash_dir := dash_ability.get_wavedash_direction()
+
+			if wavedash_dir.y > 0.0 and wavedash_dir.x != 0.0 and grounded:
+				wavedash_window_timer = wavedash_input_window
+
 	else:
-		
-		# ========== HORIZONTAL MOVEMENT ==========
 		var direction := input_x
-		var accel := ACCELERATION if grounded else AIR_ACCELERATION
-		var fric := FRICTION if grounded else AIR_FRICTION
-		
-		# Update facing direction when moving
-		if direction != 0:
+		var accel := acceleration if grounded else air_acceleration
+		var fric := friction if grounded else air_friction
+
+		if direction != 0.0:
 			facing_direction = int(sign(direction))
-		
-		# During landing lag, soften control instead of forcing a stop
-		if landing_lag_timer > 0:
-			accel *= LANDING_CONTROL_FACTOR
-			fric *= LANDING_CONTROL_FACTOR
-		
-		var max_spd: float = MAX_SPEED if grounded else MAX_AIR_SPEED
+
+		if landing_lag_timer > 0.0:
+			accel *= landing_control_factor
+			fric *= landing_control_factor
+
+		var max_spd := max_speed if grounded else max_air_speed
 		var target_speed := direction * max_spd
-		
+
 		if wall_bounce_control_lock_timer <= 0.0:
-			if direction != 0:
+			if direction != 0.0:
 				if abs(velocity.x) > max_spd and sign(velocity.x) == sign(direction):
 					velocity.x = move_toward(velocity.x, target_speed, accel * 0.25 * delta)
 				else:
 					velocity.x = move_toward(velocity.x, target_speed, accel * delta)
 			else:
-				velocity.x = move_toward(velocity.x, 0, fric * delta)
-	
-	# ========== JUMP BUFFER ==========
-	if jump_pressed and not jump_consumed:
-		if not (state == Player.DASHING and not grounded) or is_next_to_wall:
-			jump_buffered = true
-			jump_buffer_timer = WAVEDASH_BUFFER_TIME if wavedash_buffer_timer > 0.0 else JUMP_BUFFER_TIME
-	
+				velocity.x = move_toward(velocity.x, 0.0, fric * delta)
+
+
+	# ========== WAVEDASH ==========
+
+	if wavedash_window_timer > 0.0 and jump_pressed and not jump_consumed:
+		dash_ability.cancel_dash(self)
+
+		var dash_dir := dash_ability.get_wavedash_direction()
+		var wavedash_direction := input_x if input_x != 0.0 else dash_dir.x
+		var wavedash_speed := dash_ability.dash_velocity.length() * wavedash_speed_mult
+
+		velocity.x = wavedash_direction * wavedash_speed
+		velocity.y = wavedash_jump_velocity
+
+		coyote_timer = 0.0
+		dash_available = true
+		wavedash_window_timer = 0.0
+		wavedash_buffer_timer = wavedash_buffer_time
+
+		jump_consumed = true
+		jump_buffered = false
+
+
 	# ========== JUMP EXECUTION ==========
-	# Execute immediately if we land/can jump, regardless of when buffered
-	if jump_buffered and (grounded or coyote_timer > 0) and not (state == Player.DASHING and not grounded):
-		velocity.y = JUMP_VELOCITY
+
+	if jump_buffered and (grounded or coyote_timer > 0.0) and not (state == PlayerState.DASHING and not grounded):
+		velocity.y = jump_velocity
+
 		jump_buffered = false
 		coyote_timer = 0.0
 		landing_lag_timer = 0.0
-		state = Player.NORMAL
-	# Variable Jump Height
-	if jump_released and velocity.y < -100 and state != Player.DASHING and jump_cut_disabled_timer <= 0.0:
-		velocity.y *= JUMP_CUT_MULTIPLIER
-	
+		state = PlayerState.NORMAL
+
+
+	# ========== VARIABLE JUMP HEIGHT ==========
+
+	if jump_released and velocity.y < -100.0 and state != PlayerState.DASHING and jump_cut_disabled_timer <= 0.0:
+		velocity.y *= jump_cut_multiplier
+
+
 	# ========== GRAVITY ==========
+
 	if not grounded:
 		var gravity_mult := 1.0
-		if abs(velocity.y) < APEX_THRESHOLD:
-			gravity_mult = APEX_GRAVITY_MULT
-		elif velocity.y > 0:
-			gravity_mult = FALL_GRAVITY_MULT
-			if can_fast_fall and input_y > 0 and abs(input_x) < 0.1:
-				gravity_mult *= FAST_FALL_GRAVITY_MULT
-		
-		var pushing_into_wall = (
-			(wall_normal.x < 0 and input_x > 0) or
-			(wall_normal.x > 0 and input_x < 0)
+
+		if abs(velocity.y) < apex_threshold:
+			gravity_mult = apex_gravity_mult
+
+		elif velocity.y > 0.0:
+			gravity_mult = fall_gravity_mult
+
+			if can_fast_fall and input_y > 0.0 and abs(input_x) < 0.1:
+				gravity_mult *= fast_fall_gravity_mult
+
+		var pushing_into_wall := (
+			(wall_normal.x < 0.0 and input_x > 0.0)
+			or
+			(wall_normal.x > 0.0 and input_x < 0.0)
 		)
-		
-		# ========== WALL CLING ==========
-		if is_next_to_wall and velocity.y > 0 and pushing_into_wall:
-			gravity_mult *= WALL_CLING_GRAVITY_MULT # +
-			velocity.y = min(velocity.y, 120.0)
-			
-		velocity.y += GRAVITY * gravity_mult * delta
-		velocity.y = min(velocity.y, MAX_FALL_SPEED)
-		
+
+		if is_next_to_wall and velocity.y > 0.0 and pushing_into_wall:
+			gravity_mult *= wall_cling_gravity_mult
+			velocity.y = min(velocity.y, wall_cling_max_fall_speed)
+
+		velocity.y += gravity * gravity_mult * delta
+		velocity.y = min(velocity.y, max_fall_speed)
+
+
 	# ========== LANDING LAG ==========
-	
+
 	if grounded and not was_on_floor:
-		if fall_speed >= LANDING_MIN_FALL_SPEED and state != Player.DASHING:
-			landing_lag_timer = LANDING_LAG_TIME
-			
-	if landing_lag_timer > 0:
-		landing_lag_timer -= delta
-	
+		if fall_speed >= landing_min_fall_speed and state != PlayerState.DASHING:
+			landing_lag_timer = landing_lag_time
+
 	was_on_floor = grounded
-	
+
+
 	# ========== WALL DETECTION ==========
-	# Check if next to a wall
-	var collision_count = get_slide_collision_count()
-	is_next_to_wall = false
-	if collision_count > 0:
-		for i in range(collision_count):
-			var collision = get_slide_collision(i)
-			var normal = collision.get_normal()
-			# Wall collision is when normal is mostly horizontal
-			if abs(normal.x) > 0.5 and abs(normal.y) < 0.5:
-				is_next_to_wall = true
-				wall_normal = normal
-				break
-	
+
+	update_wall_detection()
+
+
+	# ========== WALL BOUNCE WINDOW ==========
+
+	if dash_ability.allows_wall_bounce and is_next_to_wall and not grounded and state == PlayerState.DASHING:
+		var wall_bounce_dir := dash_ability.get_wall_bounce_direction()
+
+		if wall_bounce_dir.y < 0.0:
+			wall_bounce_window_timer = wall_bounce_window_time
+			wall_bounce_normal = wall_normal
+
+
 	# ========== WALL BOUNCE ==========
-	if is_next_to_wall and not grounded and state == Player.DASHING and dash_direction.y < 0 and jump_pressed:
-		wall_bounce_window_timer = WALL_BOUNCE_WINDOW_TIME
-		wall_bounce_normal = wall_normal
-		var push_direction = int(sign(wall_normal.x))
-		velocity.x = push_direction * WALL_BOUNCE_PUSH_FORCE
-		velocity.y = WALL_BOUNCE_VELOCITY
-		
+
+	if jump_pressed and not jump_consumed and wall_bounce_window_timer > 0.0:
+		dash_ability.cancel_dash(self)
+
+		var push_direction := int(sign(wall_bounce_normal.x))
+		print("wall bounce normal: ", wall_bounce_normal, " push force: ", wall_bounce_push_force)
+		velocity.x = push_direction * wall_bounce_push_force
+		velocity.y = wall_bounce_velocity
+
 		jump_cut_disabled_timer = WALL_BOUNCE_JUMP_CUT_DISABLE_TIME
 		wall_bounce_control_lock_timer = wall_bounce_control_lock_time
-		state = Player.WALL_BOUNCING
-		
+
 		jump_buffered = false
 		dash_available = true
-		state = Player.NORMAL
+		state = PlayerState.WALL_BOUNCING
 		coyote_timer = 0.0
 		wall_bounce_window_timer = 0.0
 		jump_consumed = true
-	
-	# ========== COYOTE TIME ==========
+
+
+	# ========== COYOTE / DASH REFRESH ==========
+
 	if grounded:
+		coyote_timer = coyote_time
 		dash_available = true
-		coyote_timer = COYOTE_TIME
-		can_fast_fall = true
+		can_fast_fall = false
+
 	else:
-		coyote_timer -= delta
-		if input_y <= 0:
+		coyote_timer = tick_timer(coyote_timer, delta)
+
+		if input_y <= 0.0:
 			can_fast_fall = true
-		
-	
+
+
+	# ========== TIMERS ==========
+
 	if jump_buffered:
-		jump_buffer_timer -= delta
-		if jump_buffer_timer <= 0:
+		jump_buffer_timer = tick_timer(jump_buffer_timer, delta)
+
+		if jump_buffer_timer <= 0.0:
 			jump_buffered = false
-	
+
+	landing_lag_timer = tick_timer(landing_lag_timer, delta)
+	wavedash_window_timer = tick_timer(wavedash_window_timer, delta)
+	wavedash_buffer_timer = tick_timer(wavedash_buffer_timer, delta)
+	wall_bounce_window_timer = tick_timer(wall_bounce_window_timer, delta)
+	jump_cut_disabled_timer = tick_timer(jump_cut_disabled_timer, delta)
+	dash_buffer_timer = tick_timer(dash_buffer_timer, delta)
+
 	if wall_bounce_control_lock_timer > 0.0:
-		wall_bounce_control_lock_timer -= delta
-		if wall_bounce_control_lock_timer <= 0.0 and state == Player.WALL_BOUNCING:
-			state = Player.NORMAL
-	
-	if dash_buffer_timer > 0.0:
-		dash_buffer_timer -= delta
-	
-	if wavedash_buffer_timer > 0.0:
-		wavedash_buffer_timer -= delta
-	
-	if wavedash_window_timer > 0:
-		wavedash_window_timer -= delta
-	
-	if wall_bounce_window_timer > 0.0:
-		wall_bounce_window_timer -= delta
-	
-	if jump_cut_disabled_timer > 0.0:
-		jump_cut_disabled_timer -= delta
-	
-	# ========== SPRITE FLIP ==========
+		wall_bounce_control_lock_timer = tick_timer(wall_bounce_control_lock_timer, delta)
+
+		if wall_bounce_control_lock_timer <= 0.0 and state == PlayerState.WALL_BOUNCING:
+			state = PlayerState.NORMAL
+
+
+	# ========== SPRITE ==========
+
 	sprite.flip_h = facing_direction == -1
-	
+
+
+	# ========== CORNER CORRECTION ==========
+
+	apply_corner_correction(delta, input_x)
+
+
 	# ========== APPLY MOVEMENT ==========
+
 	fall_speed = velocity.y
 	move_and_slide()
 
-func start_dash(dir: Vector2) -> void:
-	if dir == Vector2.ZERO:
-		dir = Vector2(facing_direction, 0)
-	elif dir.x != 0:
-		facing_direction = int(sign(dir.x))
-	
-	dash_direction = dir.normalized()
-	state = Player.DASHING
-	dash_timer = DASH_DURATION
-	dash_available = false
-	dash_buffer_timer = 0.0
-	landing_lag_timer = 0.0
 
-func end_dash() -> void:
-	state = Player.NORMAL
-	velocity.x = dash_direction.x * DASH_END_SPEED
-	
-	if dash_direction.y < 0:
-		velocity.y *= 0.5
+func update_wall_detection() -> void:
+	is_next_to_wall = false
+	wall_normal = Vector2.ZERO
+
+	var collision_count := get_slide_collision_count()
+
+	for i in range(collision_count):
+		var collision := get_slide_collision(i)
+		var normal := collision.get_normal()
+
+		if abs(normal.x) > 0.5 and abs(normal.y) < 0.5:
+			is_next_to_wall = true
+			wall_normal = normal
+			return
+
 
 func apply_corner_correction(delta: float, input_x: float) -> void:
-	# Only correct while moving upward.
 	if velocity.y >= 0.0:
 		return
-	
+
 	var vertical_motion := Vector2(0.0, velocity.y * delta)
-	
-	# Only try correction if our upward motion would hit something.
+
 	if not test_move(global_transform, vertical_motion):
 		return
-	
+
 	var preferred_dir := int(sign(input_x))
-	
+
 	if preferred_dir == 0:
 		preferred_dir = int(sign(velocity.x))
-	
+
 	var directions := [1, -1]
-	
+
 	if preferred_dir != 0:
 		directions = [preferred_dir, -preferred_dir]
-	
-	for amount in range(1, CORNER_CORRECTION_PIXELS + 1):
+
+	for amount in range(1, corner_correction_pixels + 1):
 		for dir in directions:
 			var offset := Vector2(dir * amount, 0.0)
-	
-			# First check that we can move sideways into this correction position.
+
 			if test_move(global_transform, offset):
 				continue
-	
-			# Then check that upward movement would be clear from that corrected position.
+
 			var corrected_transform := global_transform
 			corrected_transform.origin += offset
-	
+
 			if not test_move(corrected_transform, vertical_motion):
 				global_position.x += offset.x
 				return
+
+
+func tick_timer(timer: float, delta: float) -> float:
+	return maxf(timer - delta, 0.0)
+
+
+func enter_dash_state() -> void:
+	state = PlayerState.DASHING
+
+
+func exit_dash_state() -> void:
+	if state == PlayerState.DASHING:
+		state = PlayerState.NORMAL

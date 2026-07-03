@@ -2,6 +2,7 @@
 
 [ext_resource type="Texture2D" uid="uid://cj70hmg5dolau" path="res://assets/sprites/Geek-Idol.png" id="1_3vyb7"]
 [ext_resource type="Script" uid="uid://ctly85ysm2pth" path="res://scripts/player.gd" id="1_g2els"]
+[ext_resource type="Script" uid="uid://3mu6ibbvhx6y" path="res://scripts/abilities/basicDash.gd" id="3_qhqgy"]
 
 [sub_resource type="AtlasTexture" id="AtlasTexture_g2els"]
 atlas = ExtResource("1_3vyb7")
@@ -71,8 +72,11 @@ animations = [{
 radius = 7.0
 height = 18.0
 
-[node name="player" type="CharacterBody2D" unique_id=1802150828]
+[node name="Player" type="CharacterBody2D" unique_id=1802150828]
 script = ExtResource("1_g2els")
+wavedash_speed_mult = 1.1
+wall_bounce_velocity = -300.0
+wall_bounce_push_force = 120.0
 
 [node name="AnimatedSprite2D" type="AnimatedSprite2D" parent="." unique_id=1236738832]
 sprite_frames = SubResource("SpriteFrames_ykoa8")
@@ -82,3 +86,8 @@ frame_progress = 0.70113224
 [node name="CollisionShape2D" type="CollisionShape2D" parent="." unique_id=381842412]
 position = Vector2(1, 4)
 shape = SubResource("CapsuleShape2D_ykoa8")
+
+[node name="Abilities" type="Node" parent="." unique_id=1995374008]
+
+[node name="DashAbility" type="Node" parent="Abilities" unique_id=487653241]
+script = ExtResource("3_qhqgy")
