@@ -17,6 +17,18 @@ var state: PlayerState = PlayerState.NORMAL
 @onready var sprite: AnimatedSprite2D = $AnimatedSprite2D
 @onready var dash_ability: DashAbility = $Abilities/DashAbility
 
+func _ready() -> void:
+	# For testing: replace the scene's DashAbility with JumpInterruptDash by default
+	var ji_script := preload("res://scripts/abilities/bongosDash.gd")
+	if dash_ability and is_instance_valid(dash_ability):
+		var parent := dash_ability.get_parent()
+		parent.remove_child(dash_ability)
+		dash_ability.queue_free()
+	# Instantiate the new dash ability and add it to the Abilities node
+	dash_ability = ji_script.new()
+	$Abilities.add_child(dash_ability)
+	dash_ability.name = "DashAbility"
+
 
 # ========== MOVEMENT ==========
 
@@ -162,11 +174,21 @@ func _physics_process(delta: float) -> void:
 	if state == PlayerState.DASHING:
 		dash_ability.update_dash(self, delta)
 
+		# Compute wavedash possibility first so a jump press this frame triggers wavedash
+		var wavedash_possible := false
 		if dash_ability.allows_wavedash:
 			var wavedash_dir := dash_ability.get_wavedash_direction()
-
 			if wavedash_dir.y > 0.0 and wavedash_dir.x != 0.0 and grounded:
 				wavedash_window_timer = wavedash_input_window
+				wavedash_possible = true
+
+		# Allow interrupting the dash with a jump if the dash ability supports it,
+		# but don't interrupt if a grounded wavedash is possible this frame.
+		if jump_pressed and not jump_consumed:
+			if dash_ability.has_method("interrupt_with_jump") and dash_ability.allows_jump_interrupt and not wavedash_possible:
+				dash_ability.interrupt_with_jump(self)
+				jump_consumed = true
+				jump_buffered = false
 
 	else:
 		var direction := input_x

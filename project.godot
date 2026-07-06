@@ -79,6 +79,16 @@ move_down={
 ]
 }
 
+[layer_names]
+
+2d_render/layer_1="Tiles"
+2d_render/layer_2="PlayerBody"
+2d_render/layer_3="EnemyBody"
+2d_render/layer_4="PlayerHitbox"
+2d_render/layer_5="EnemyHitbox"
+2d_render/layer_6="PlayerHurtbox"
+2d_render/layer_7="EnemyHurtbox"
+
 [physics]
 
 3d/physics_engine="Jolt Physics"
