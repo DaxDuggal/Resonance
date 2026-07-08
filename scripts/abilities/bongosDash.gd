@@ -142,7 +142,6 @@ func interrupt_with_jump(player: Player) -> void:
 		player.velocity.y = player.wavedash_jump_velocity
 
 		player.coyote_timer = 0.0
-		player.dash_available = true
 		player.wavedash_window_timer = 0.0
 		player.wavedash_buffer_timer = player.wavedash_buffer_time
 		return

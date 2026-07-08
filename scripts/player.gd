@@ -17,9 +17,29 @@ var state: PlayerState = PlayerState.NORMAL
 @onready var sprite: AnimatedSprite2D = $AnimatedSprite2D
 @onready var dash_ability: DashAbility = $Abilities/DashAbility
 
+# Debug drawing for dash raycasts using a Line2D child named DashDebugLine
+func show_dash_debug(target: Vector2) -> void:
+	var local_target := to_local(target)
+	var line: Line2D = null
+	if has_node("DashDebugLine"):
+		line = $DashDebugLine
+	else:
+		line = Line2D.new()
+		line.name = "DashDebugLine"
+		line.width = 2
+		line.default_color = Color(0, 1, 0)
+		add_child(line)
+
+	line.visible = true
+	line.points = [Vector2.ZERO, local_target]
+
+func clear_dash_debug() -> void:
+	if has_node("DashDebugLine"):
+		$DashDebugLine.visible = false
+
 func _ready() -> void:
-	# For testing: replace the scene's DashAbility with JumpInterruptDash by default
-	var ji_script := preload("res://scripts/abilities/bongosDash.gd")
+	# For testing: replace the scene's DashAbility with PanfluteDash by default
+	var ji_script := preload("res://scripts/abilities/panfluteDash.gd")
 	if dash_ability and is_instance_valid(dash_ability):
 		var parent := dash_ability.get_parent()
 		parent.remove_child(dash_ability)
@@ -28,6 +48,15 @@ func _ready() -> void:
 	dash_ability = ji_script.new()
 	$Abilities.add_child(dash_ability)
 	dash_ability.name = "DashAbility"
+
+	# Ensure a GrappleRay RayCast2D exists for the player (used by panflute dash)
+	if not has_node("GrappleRay"):
+		var rc := RayCast2D.new()
+		rc.name = "GrappleRay"
+		rc.enabled = false
+		add_child(rc)
+		# Optional: set collision mask/layers in editor if needed
+
 
 
 # ========== MOVEMENT ==========
@@ -122,6 +151,7 @@ var wall_normal := Vector2.ZERO
 var wall_bounce_window_timer := 0.0
 var wall_bounce_normal := Vector2.ZERO
 var wall_bounce_control_lock_timer := 0.0
+var control_lock_timer := 0.0  # general purpose input/control lock (used by panflute recoil, etc.)
 
 
 # ========== ASSISTS ==========
@@ -205,7 +235,7 @@ func _physics_process(delta: float) -> void:
 		var max_spd := max_speed if grounded else max_air_speed
 		var target_speed := direction * max_spd
 
-		if wall_bounce_control_lock_timer <= 0.0:
+		if wall_bounce_control_lock_timer <= 0.0 and control_lock_timer <= 0.0:
 			if direction != 0.0:
 				if abs(velocity.x) > max_spd and sign(velocity.x) == sign(direction):
 					velocity.x = move_toward(velocity.x, target_speed, accel * 0.25 * delta)
@@ -213,6 +243,9 @@ func _physics_process(delta: float) -> void:
 					velocity.x = move_toward(velocity.x, target_speed, accel * delta)
 			else:
 				velocity.x = move_toward(velocity.x, 0.0, fric * delta)
+		else:
+			# Controls are locked; apply friction toward current facing or zero
+			velocity.x = move_toward(velocity.x, 0.0, fric * delta)
 
 
 	# ========== WAVEDASH ==========
@@ -254,32 +287,33 @@ func _physics_process(delta: float) -> void:
 
 
 	# ========== GRAVITY ==========
-
-	if not grounded:
+	
+	# Skip gravity while DASHING so dash velocity isn't pulled down slightly
+	if not grounded and state != PlayerState.DASHING:
 		var gravity_mult := 1.0
-
+	
 		if abs(velocity.y) < apex_threshold:
 			gravity_mult = apex_gravity_mult
-
+	
 		elif velocity.y > 0.0:
 			gravity_mult = fall_gravity_mult
-
+	
 			if can_fast_fall and input_y > 0.0 and abs(input_x) < 0.1:
 				gravity_mult *= fast_fall_gravity_mult
-
+	
 		var pushing_into_wall := (
 			(wall_normal.x < 0.0 and input_x > 0.0)
 			or
 			(wall_normal.x > 0.0 and input_x < 0.0)
 		)
-
+	
 		if is_next_to_wall and velocity.y > 0.0 and pushing_into_wall:
 			gravity_mult *= wall_cling_gravity_mult
 			velocity.y = min(velocity.y, wall_cling_max_fall_speed)
-
+	
 		velocity.y += gravity * gravity_mult * delta
 		velocity.y = min(velocity.y, max_fall_speed)
-
+	
 
 	# ========== LANDING LAG ==========
 
@@ -291,11 +325,7 @@ func _physics_process(delta: float) -> void:
 
 
 	# ========== WALL DETECTION ==========
-
-	update_wall_detection()
-
-
-	# ========== WALL BOUNCE WINDOW ==========
+	# (moved to after movement so slide collisions are from the current move_and_slide)
 
 	if dash_ability.allows_wall_bounce and is_next_to_wall and not grounded and state == PlayerState.DASHING:
 		var wall_bounce_dir := dash_ability.get_wall_bounce_direction()
@@ -311,7 +341,6 @@ func _physics_process(delta: float) -> void:
 		dash_ability.cancel_dash(self)
 
 		var push_direction := int(sign(wall_bounce_normal.x))
-		print("wall bounce normal: ", wall_bounce_normal, " push force: ", wall_bounce_push_force)
 		velocity.x = push_direction * wall_bounce_push_force
 		velocity.y = wall_bounce_velocity
 
@@ -361,6 +390,10 @@ func _physics_process(delta: float) -> void:
 		if wall_bounce_control_lock_timer <= 0.0 and state == PlayerState.WALL_BOUNCING:
 			state = PlayerState.NORMAL
 
+	# general control lock timer (used by panflute recoil and others)
+	if control_lock_timer > 0.0:
+		control_lock_timer = tick_timer(control_lock_timer, delta)
+
 
 	# ========== SPRITE ==========
 
@@ -375,7 +408,58 @@ func _physics_process(delta: float) -> void:
 	# ========== APPLY MOVEMENT ==========
 
 	fall_speed = velocity.y
+	# Before moving, perform a segment check ahead for dash movement to avoid sliding past thin platforms
+	if state == PlayerState.DASHING and dash_ability and is_instance_valid(dash_ability) and dash_ability.is_active and velocity.length() > 1.0:
+		var next_pos := global_position + velocity * get_physics_process_delta_time()
+		var space = get_world_2d().direct_space_state
+		var params = PhysicsRayQueryParameters2D.new()
+		params.from = global_position
+		params.to = next_pos
+		params.exclude = [self]
+		var hit = space.intersect_ray(params)
+		if hit and hit.has("position"):
+			# Move the player to just before the collision point to avoid passing through
+			var hit_pos: Vector2 = hit.get("position")
+			var safe_pos := hit_pos - velocity.normalized() * 2.0
+			global_position = safe_pos
+			# Zero velocity immediately
+			velocity = Vector2.ZERO
+			# Let ability handle the collision; it accepts either a Dictionary (from intersect_ray) or a slide collision
+			if dash_ability.has_method("handle_slide_collision"):
+				dash_ability.handle_slide_collision(self, hit)
+			# Skip calling move_and_slide this frame since we've already positioned the body
+			return
+
 	move_and_slide()
+
+	# After movement, update wall detection (uses slide collisions just generated)
+	update_wall_detection()
+
+	# If we just slid into something while DASHING, let certain dash abilities react immediately.
+	if state == PlayerState.DASHING and dash_ability and is_instance_valid(dash_ability) and dash_ability.is_active:
+		var collision_count := get_slide_collision_count()
+		if collision_count > 0:
+			for i in range(collision_count):
+				var collision := get_slide_collision(i)
+				if collision and dash_ability.has_method("handle_slide_collision"):
+					var normal := collision.get_normal()
+					# Use the actual movement vector (dash_velocity when available) so collisions
+					# that oppose the player's motion trigger even if the dash target lies beyond.
+					var mdir := Vector2.ZERO
+					if dash_ability.dash_velocity.length() > 0.001:
+						mdir = dash_ability.dash_velocity.normalized()
+					else:
+						mdir = dash_ability.dash_direction.normalized()
+					# Trigger if the collision surface opposes the movement direction
+					if mdir.dot(normal) < -0.3:
+						# For grapple dash (PanfluteDash), zero momentum immediately so player
+						# doesn't slide past the surface, then let the ability handle recoil.
+						if dash_ability is PanfluteDash:
+							velocity = Vector2.ZERO
+							dash_ability.handle_slide_collision(self, collision)
+						else:
+							dash_ability.handle_slide_collision(self, collision)
+						break
 
 
 func update_wall_detection() -> void:

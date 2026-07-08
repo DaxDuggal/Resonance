@@ -68,9 +68,8 @@ animations = [{
 "speed": 10.0
 }]
 
-[sub_resource type="CapsuleShape2D" id="CapsuleShape2D_ykoa8"]
-radius = 7.0
-height = 18.0
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_dqkch"]
+size = Vector2(14, 15)
 
 [node name="Player" type="CharacterBody2D" unique_id=1802150828]
 script = ExtResource("1_g2els")
@@ -84,10 +83,12 @@ autoplay = "default"
 frame_progress = 0.70113224
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="." unique_id=381842412]
-position = Vector2(1, 4)
-shape = SubResource("CapsuleShape2D_ykoa8")
+position = Vector2(1, 5.5)
+shape = SubResource("RectangleShape2D_dqkch")
 
 [node name="Abilities" type="Node" parent="." unique_id=1995374008]
 
 [node name="DashAbility" type="Node" parent="Abilities" unique_id=487653241]
 script = ExtResource("3_qhqgy")
+
+[node name="GrappleRay" type="RayCast2D" parent="." unique_id=870923249]

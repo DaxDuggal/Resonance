@@ -7,7 +7,8 @@ signal dash_finished
 
 @export var allows_wavedash := true
 @export var allows_wall_bounce := true
-
+# Default recoil force applied when a dash hits a surface and the ability doesn't implement its own reaction
+@export var default_recoil_force: float = 80.0
 
 var is_active := false
 var dash_direction := Vector2.RIGHT
@@ -51,3 +52,9 @@ func get_wavedash_direction() -> Vector2:
 
 func get_wall_bounce_direction() -> Vector2:
 	return dash_direction
+
+
+# Called by Player after move_and_slide when a slide collision occurs while dashing.
+# Default implementation does nothing. Abilities that want custom behavior should override this method.
+func handle_slide_collision(player: Player, collision) -> void:
+	pass
