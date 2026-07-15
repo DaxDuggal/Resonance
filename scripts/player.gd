@@ -15,6 +15,7 @@ var state: PlayerState = PlayerState.NORMAL
 
 @onready var sprite: AnimatedSprite2D = $AnimatedSprite2D
 @onready var dash_ability: DashAbility = $Abilities/DashAbility
+@onready var timer: Timer = $Timer
 
 # Debug drawing for dash raycasts using a Line2D child named DashDebugLine
 func show_dash_debug(target: Vector2) -> void:
@@ -38,7 +39,7 @@ func clear_dash_debug() -> void:
 
 func _ready() -> void:
 	# For testing: replace the scene's DashAbility with PanfluteDash by default
-	var ji_script := preload("res://scripts/abilities/panfluteDash.gd")
+	var ji_script := preload("res://scripts/abilities/basicDash.gd")
 	if dash_ability and is_instance_valid(dash_ability):
 		var parent := dash_ability.get_parent()
 		parent.remove_child(dash_ability)
@@ -142,7 +143,7 @@ var wall_normal := Vector2.ZERO
 
 # ========== WALL BOUNCE ==========
 
-@export var wall_bounce_velocity := -350.0
+@export var wall_bounce_velocity := -360.0
 @export var wall_bounce_push_force := 300.0
 @export var wall_bounce_window_time := 0.2
 @export var wall_bounce_control_lock_time := 0.12
@@ -170,6 +171,12 @@ func _physics_process(delta: float) -> void:
 	var jump_consumed := false
 	var grounded := is_on_floor()
 
+	# Prevent input while dead, but still apply gravity and movement
+	if state == PlayerState.DEAD:
+		# Skip input processing, but gravity will still apply below
+		dash_pressed = false
+		jump_pressed = false
+		input_x = 0.0
 
 	# ========== INPUT BUFFERS ==========
 
@@ -515,6 +522,16 @@ func apply_corner_correction(delta: float, input_x: float) -> void:
 				global_position.x += offset.x
 				return
 
+# ============ Death ==========
+func _on_hitbox_body_entered(body):
+	print("Game Over")
+	state = PlayerState.DEAD
+	Engine.time_scale = 0.7
+	timer.start()
+
+func _on_timer_timeout():
+	Engine.time_scale = 1.0
+	get_tree().reload_current_scene()
 
 func tick_timer(timer: float, delta: float) -> float:
 	return maxf(timer - delta, 0.0)

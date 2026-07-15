@@ -69,11 +69,13 @@ animations = [{
 }]
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_dqkch"]
-size = Vector2(14, 15)
+size = Vector2(12.5, 14)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_7vfq0"]
+size = Vector2(14, 16)
 
 [node name="Player" type="CharacterBody2D" unique_id=1802150828]
 collision_layer = 2
-collision_mask = 17
 script = ExtResource("1_g2els")
 wall_bounce_velocity = -300.0
 wall_bounce_push_force = 120.0
@@ -83,8 +85,8 @@ sprite_frames = SubResource("SpriteFrames_ykoa8")
 autoplay = "default"
 frame_progress = 0.70113224
 
-[node name="CollisionShape2D" type="CollisionShape2D" parent="." unique_id=381842412]
-position = Vector2(1, 5.5)
+[node name="PlayerBody" type="CollisionShape2D" parent="." unique_id=381842412]
+position = Vector2(0.75, 6)
 shape = SubResource("RectangleShape2D_dqkch")
 
 [node name="Abilities" type="Node" parent="." unique_id=1995374008]
@@ -93,3 +95,18 @@ shape = SubResource("RectangleShape2D_dqkch")
 script = ExtResource("3_qhqgy")
 
 [node name="GrappleRay" type="RayCast2D" parent="." unique_id=870923249]
+
+[node name="Hitbox" type="Area2D" parent="." unique_id=109232623]
+collision_layer = 8
+collision_mask = 16
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Hitbox" unique_id=437314072]
+position = Vector2(1, 6)
+shape = SubResource("RectangleShape2D_7vfq0")
+debug_color = Color(0.7587654, 0, 0.27456048, 0.41960785)
+
+[node name="Timer" type="Timer" parent="." unique_id=1971164965]
+wait_time = 0.2
+
+[connection signal="body_entered" from="Hitbox" to="." method="_on_hitbox_body_entered"]
+[connection signal="timeout" from="Timer" to="." method="_on_timer_timeout"]

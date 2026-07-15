@@ -81,7 +81,7 @@ move_down={
 
 [layer_names]
 
-2d_render/layer_1="Tiles"
+2d_render/layer_1="World"
 2d_render/layer_2="PlayerBody"
 2d_render/layer_3="EnemyBody"
 2d_render/layer_4="PlayerHitbox"
