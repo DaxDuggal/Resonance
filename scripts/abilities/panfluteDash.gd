@@ -2,7 +2,7 @@ extends DashAbility
 class_name PanfluteDash
 
 @export var allows_jump_interrupt: bool = true
-@export var dash_speed: float = 650.0
+@export var dash_speed: float = 525.0
 @export var speed_multiplier: float = 0.85  # make it slightly slower
 @export var max_range: float = 800.0
 @export var min_range: float = 8.0
@@ -12,12 +12,18 @@ class_name PanfluteDash
 @export var min_acceptable_distance: float = 4.0
 
 # Pause before moving (frames)
-@export var pause_frames: int = 8
+@export var pause_frames: int = 3
+
+# Speed ramp-up after pause (frames) - gradually accelerate to full speed
+@export var ramp_frames: int = 15
 
 
 var timer: float = 0.0
 var _pause_timer: float = 0.0
 var _moving: bool = false
+var _ramp_timer: float = 0.0
+var _speed_factor: float = 1.0
+var _ramp_tween: Tween = null
 var _pre_pause_velocity: Vector2 = Vector2.ZERO
 var _abort_after_pause: bool = false
 var _skip_consume: bool = false
@@ -94,16 +100,12 @@ func start_dash(player: Player, dir: Vector2) -> void:
 	if player.has_method("show_dash_debug"):
 		player.show_dash_debug(target)
 
-	var distance: float = (target - from).length()
-	# clamp tiny distances
-	if distance < min_acceptable_distance:
-		distance = min_acceptable_distance
-
-	# Compute travel time so the dash reaches the target exactly
-	# Apply speed multiplier to slow the dash a bit
+	# Apply speed multiplier and set dash velocity
 	var effective_speed: float = dash_speed * speed_multiplier
-	timer = distance / effective_speed
 	dash_velocity = dash_direction.normalized() * effective_speed
+
+	# Set a large timer as a safety fallback (collision will stop dash early)
+	timer = max_range / effective_speed
 
 	# Start with a short pause so animation can play
 	_pause_timer = float(pause_frames) / 60.0
@@ -140,10 +142,19 @@ func update_dash(player: Player, delta: float) -> void:
 
 	if not _moving:
 		_moving = true
+		_speed_factor = 0.0
+
+		# Create tween for extreme speed ramp-up
+		if _ramp_tween:
+			_ramp_tween.kill()
+		_ramp_tween = create_tween()
+		_ramp_tween.set_trans(Tween.TRANS_CUBIC)
+		_ramp_tween.set_ease(Tween.EASE_OUT)
+		_ramp_tween.tween_property(self, "_speed_factor", 1.0, float(ramp_frames) / 60.0)
 
 	# Maintain dash velocity until timer expires
 	timer -= delta
-	player.velocity = dash_velocity
+	player.velocity = dash_velocity * _speed_factor
 
 	if timer <= 0.0:
 		finish_dash(player)
@@ -177,13 +188,68 @@ func cancel_dash(player: Player) -> void:
 # Called from Player after move_and_slide when a slide collision occurred.
 # For grapple dash, immediately finish the dash using the collision normal so recoil is accurate.
 func handle_slide_collision(player: Player, collision) -> void:
-	# Accept either a slide-collision object with get_normal() or a Dictionary from intersect_ray, but ignore normals
+	# Accept either a slide-collision object with get_normal() or a Dictionary from intersect_ray
+	var normal: Vector2 = Vector2.ZERO
+	if typeof(collision) == TYPE_DICTIONARY:
+		if collision.has("normal"):
+			normal = collision.get("normal")
+	else:
+		if collision and collision.has_method("get_normal"):
+			normal = collision.get_normal()
+
+	# Check if this is a ground hit (normal pointing up)
+	var is_ground_hit: bool = normal.y < -0.5 and dash_direction.y > 0.1
+
+	# Check if this is a wall hit (normal pointing sideways)
+	var is_wall_hit: bool = abs(normal.x) > 0.5 and dash_direction.y < 0.0 and abs(dash_direction.x) > 0.1
+
+	# Set wavedash window if landing from downward dash (works for air or ground starts)
+	if is_ground_hit:
+		player.wavedash_window_timer = player.wavedash_input_window
+
+	# Set wall bounce window if hitting wall with upward diagonal dash
+	if is_wall_hit:
+		player.wall_bounce_window_timer = player.wall_bounce_window_time
+		player.wall_bounce_normal = normal
+
 	# Zero momentum and finish dash cleanly (no recoil)
 	player.velocity = Vector2.ZERO
 	finish_dash(player)
 
 # Allow jump to interrupt this dash (player.gd will call this when appropriate)
 func interrupt_with_jump(player: Player) -> void:
-	# Cancel the dash and apply a normal jump impulse; do not restore dash availability here
 	cancel_dash(player)
+
+	# Don't restore dash on interrupt - only restore when landing
+	player.dash_available = false
+
+	# Get current input direction
+	var input_direction: float = Input.get_axis("move_left", "move_right")
+
+	# Handle horizontal momentum: allow reversal by holding opposite direction
+	var target_vx: float = 0.0
+	if abs(dash_direction.x) > 0.1:
+		# Dash has horizontal component
+		if input_direction * dash_direction.x > 0.1:
+			# Input in same direction as dash: keep some momentum
+			target_vx = player.velocity.x * 0.7
+			target_vx = clamp(target_vx, -player.max_speed, player.max_speed)
+		elif input_direction < -0.1:
+			# Input backward: reverse momentum
+			target_vx = -player.velocity.x * 0.3
+			target_vx = clamp(target_vx, -player.max_speed, player.max_speed)
+		# else: no input -> target_vx stays 0 (straight jump)
+	else:
+		# Dash is purely vertical (up or down)
+		if input_direction != 0.0:
+			# Player has input: preserve momentum in that direction
+			target_vx = player.velocity.x * 0.5
+			target_vx = clamp(target_vx, -player.max_speed, player.max_speed)
+		else:
+			# No input: preserve a tiny bit of momentum for feel
+			target_vx = player.velocity.x * 0.3
+
+	# Apply jump and set horizontal velocity
+	player.velocity.x = target_vx
 	player.velocity.y = player.jump_velocity
+	player.exit_dash_state()

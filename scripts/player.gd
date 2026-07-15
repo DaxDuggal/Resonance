@@ -10,7 +10,6 @@ enum PlayerState {
 	DEAD
 }
 
-
 var state: PlayerState = PlayerState.NORMAL
 
 
@@ -66,7 +65,7 @@ func _ready() -> void:
 @export var max_air_speed := 140.0
 @export var acceleration := 1200.0
 @export var air_acceleration := 900.0
-@export var friction := 1200.0
+@export var friction := 1800.0
 @export var air_friction := 300.0
 
 
@@ -112,7 +111,7 @@ var facing_direction := 1
 @export_group("Wavedash")
 @export var wavedash_input_window := 0.2
 @export var wavedash_buffer_time := 0.2
-@export var wavedash_speed_mult := 1.3
+@export var wavedash_speed_mult := 1.1
 @export var wavedash_jump_velocity := -250.0
 
 var wavedash_window_timer := 0.0
@@ -255,7 +254,8 @@ func _physics_process(delta: float) -> void:
 
 		var dash_dir := dash_ability.get_wavedash_direction()
 		var wavedash_direction := input_x if input_x != 0.0 else dash_dir.x
-		var wavedash_speed := dash_ability.dash_velocity.length() * wavedash_speed_mult
+		var capped_dash_vel: float = min(dash_ability.dash_velocity.length(), 350.0)
+		var wavedash_speed := capped_dash_vel * wavedash_speed_mult
 
 		velocity.x = wavedash_direction * wavedash_speed
 		velocity.y = wavedash_jump_velocity
@@ -460,6 +460,10 @@ func _physics_process(delta: float) -> void:
 						else:
 							dash_ability.handle_slide_collision(self, collision)
 						break
+
+	# Set wavedash window if landed from downward dash (after move_and_slide so is_on_floor() is updated)
+	if is_on_floor() and not was_on_floor and state == PlayerState.DASHING and dash_ability.dash_direction.y > 0.0:
+		wavedash_window_timer = wavedash_input_window
 
 
 func update_wall_detection() -> void:
