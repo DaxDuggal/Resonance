@@ -96,11 +96,11 @@ script = ExtResource("3_qhqgy")
 
 [node name="GrappleRay" type="RayCast2D" parent="." unique_id=870923249]
 
-[node name="Hitbox" type="Area2D" parent="." unique_id=109232623]
+[node name="Hurtbox" type="Area2D" parent="." unique_id=109232623]
 collision_layer = 8
 collision_mask = 16
 
-[node name="CollisionShape2D" type="CollisionShape2D" parent="Hitbox" unique_id=437314072]
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Hurtbox" unique_id=437314072]
 position = Vector2(1, 6)
 shape = SubResource("RectangleShape2D_7vfq0")
 debug_color = Color(0.7587654, 0, 0.27456048, 0.41960785)
@@ -108,5 +108,5 @@ debug_color = Color(0.7587654, 0, 0.27456048, 0.41960785)
 [node name="Timer" type="Timer" parent="." unique_id=1971164965]
 wait_time = 0.2
 
-[connection signal="body_entered" from="Hitbox" to="." method="_on_hitbox_body_entered"]
+[connection signal="body_entered" from="Hurtbox" to="." method="_on_hitbox_body_entered"]
 [connection signal="timeout" from="Timer" to="." method="_on_timer_timeout"]
