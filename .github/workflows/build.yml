@@ -23,7 +23,7 @@ jobs:
           - name: Windows
             os: windows-latest
             platform: windows
-            export-preset: Windows
+            export-preset: Windows Desktop
             export-path: build/windows/Resonance.exe
             export-folder: build/windows
             package-path: dist/Resonance-Windows.zip
@@ -36,33 +36,25 @@ jobs:
             export-folder: build/linux
             package-path: dist/Resonance-Linux.tar.gz
 
-          - name: macOS
-            os: macos-latest
-            platform: macos
-            export-preset: macOS
-            export-path: build/macos/Resonance.app
-            export-folder: build/macos
-            package-path: dist/Resonance-macOS.zip
-
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@v4
 
-      - name: Set up Godot
-        uses: chickensoft-games/setup-godot@v2.4.1
+      - name: Setup Godot
+        uses: chickensoft-games/setup-godot@v2
         with:
           version: ${{ env.GODOT_VERSION }}
           use-dotnet: false
           include-templates: true
 
-      - name: Import project
+      - name: Import Godot project
         shell: bash
         run: godot --headless --import
 
       - name: Export project
         shell: bash
         run: |
-          mkdir -p "$(dirname '${{ matrix.export-path }}')"
+          mkdir -p "$(dirname "${{ matrix.export-path }}")"
           godot --headless \
             --export-release "${{ matrix.export-preset }}" \
             "${{ matrix.export-path }}"
@@ -71,7 +63,7 @@ jobs:
         if: matrix.platform == 'windows'
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          New-Item -ItemType Directory -Force -Path "dist" | Out-Null
           Compress-Archive `
             -Path "${{ matrix.export-folder }}/*" `
             -DestinationPath "${{ matrix.package-path }}" `
@@ -85,48 +77,9 @@ jobs:
           tar -czf "${{ matrix.package-path }}" \
             -C "${{ matrix.export-folder }}" .
 
-      - name: Package macOS build
-        if: matrix.platform == 'macos'
-        shell: bash
-        run: |
-          mkdir -p dist
-          ditto -c -k --sequesterRsrc --keepParent \
-            "${{ matrix.export-path }}" \
-            "${{ matrix.package-path }}"
-
       - name: Upload build artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: Resonance-${{ matrix.name }}
           path: ${{ matrix.package-path }}
           if-no-files-found: error
-
-  release:
-    name: Publish tagged release
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
-    needs: build
-    runs-on: ubuntu-latest
-
-    permissions:
-      contents: write
-
-    steps:
-      - name: Download build artifacts
-        uses: actions/download-artifact@v8
-        with:
-          path: dist
-          merge-multiple: true
-
-      - name: Create or update GitHub release
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-        run: |
-          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" dist/* --clobber
-          else
-            gh release create "$GITHUB_REF_NAME" dist/* \
-              --generate-notes \
-              --title "Resonance $GITHUB_REF_NAME"
-          fi
