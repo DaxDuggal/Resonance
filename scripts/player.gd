@@ -11,6 +11,7 @@ enum PlayerState {
 }
 
 var state: PlayerState = PlayerState.NORMAL
+var _death_handled: bool = false
 
 
 @onready var sprite: AnimatedSprite2D = $AnimatedSprite2D
@@ -143,8 +144,9 @@ var wall_normal := Vector2.ZERO
 
 # ========== WALL BOUNCE ==========
 
-@export var wall_bounce_velocity := -360.0
-@export var wall_bounce_push_force := 300.0
+@export var wall_bounce_velocity := -350.0
+@export var wall_bounce_push_force := 320.0
+@export var wall_jump_push_force := 190.0
 @export var wall_bounce_window_time := 0.2
 @export var wall_bounce_control_lock_time := 0.12
 
@@ -171,9 +173,8 @@ func _physics_process(delta: float) -> void:
 	var jump_consumed := false
 	var grounded := is_on_floor()
 
-	# Prevent input while dead, but still apply gravity and movement
+	# Prevent input while dead
 	if state == PlayerState.DEAD:
-		# Skip input processing, but gravity will still apply below
 		dash_pressed = false
 		jump_pressed = false
 		input_x = 0.0
@@ -340,6 +341,23 @@ func _physics_process(delta: float) -> void:
 		if wall_bounce_dir.y < 0.0:
 			wall_bounce_window_timer = wall_bounce_window_time
 			wall_bounce_normal = wall_normal
+
+
+	# ========== WALL JUMP ==========
+
+	if jump_pressed and not jump_consumed and is_next_to_wall and not grounded and state != PlayerState.DASHING:
+		var push_direction := int(sign(wall_normal.x))
+		velocity.x = push_direction * wall_jump_push_force
+		velocity.y = jump_velocity
+
+		jump_cut_disabled_timer = WALL_BOUNCE_JUMP_CUT_DISABLE_TIME
+		wall_bounce_control_lock_timer = wall_bounce_control_lock_time
+
+		jump_buffered = false
+		dash_available = true
+		state = PlayerState.WALL_BOUNCING
+		coyote_timer = 0.0
+		jump_consumed = true
 
 
 	# ========== WALL BOUNCE ==========
@@ -524,8 +542,15 @@ func apply_corner_correction(delta: float, input_x: float) -> void:
 
 # ============ Death ==========
 func _on_hitbox_body_entered(body):
+		state = PlayerState.DEAD
+		dead()
+
+func _on_hurtbox_area_entered(area):
+		state = PlayerState.DEAD
+		dead()
+
+func dead() -> void:
 	print("Game Over")
-	state = PlayerState.DEAD
 	Engine.time_scale = 0.7
 	timer.start()
 
@@ -536,10 +561,8 @@ func _on_timer_timeout():
 func tick_timer(timer: float, delta: float) -> float:
 	return maxf(timer - delta, 0.0)
 
-
 func enter_dash_state() -> void:
 	state = PlayerState.DASHING
-
 
 func exit_dash_state() -> void:
 	if state == PlayerState.DASHING:
