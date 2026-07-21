@@ -1,0 +1,1 @@
+This folder contains the files for my Godot game. It is a 2d metroidvania centered around dashing, moving fast, and timing. You will help me code scripts for files, debug errors, and optimize code.

@@ -124,7 +124,7 @@ func interrupt_with_jump(player: Player) -> void:
 		player.wall_bounce_control_lock_timer = player.wall_bounce_control_lock_time
 
 		player.jump_buffered = false
-		player.state = 2 # PlayerState.WALL_BOUNCING
+		player.state = player.PlayerState.WALL_BOUNCING
 		player.coyote_timer = 0.0
 		# Only refresh dash if this was a real wall bounce (player is next to a wall)
 		if player.is_next_to_wall:

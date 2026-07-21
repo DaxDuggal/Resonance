@@ -4,7 +4,7 @@ class_name PanfluteDash
 @export var allows_jump_interrupt: bool = true
 @export var dash_speed: float = 525.0
 @export var speed_multiplier: float = 0.85  # make it slightly slower
-@export var max_range: float = 800.0
+@export var max_range: float = 270.0
 @export var min_range: float = 8.0
 @export var dash_end_speed: float = 180.0
 
@@ -21,7 +21,6 @@ class_name PanfluteDash
 var timer: float = 0.0
 var _pause_timer: float = 0.0
 var _moving: bool = false
-var _ramp_timer: float = 0.0
 var _speed_factor: float = 1.0
 var _ramp_tween: Tween = null
 var _pre_pause_velocity: Vector2 = Vector2.ZERO
@@ -212,8 +211,12 @@ func handle_slide_collision(player: Player, collision) -> void:
 		player.wall_bounce_window_timer = player.wall_bounce_window_time
 		player.wall_bounce_normal = normal
 
-	# Zero momentum and finish dash cleanly (no recoil)
-	player.velocity = Vector2.ZERO
+	# Apply small recoil when hitting something (like Kevin block but weaker)
+	if normal.length() > 0.0:
+		var recoil_strength := 200.0
+		player.velocity = -normal * recoil_strength
+	else:
+		player.velocity = Vector2.ZERO
 	finish_dash(player)
 
 # Allow jump to interrupt this dash (player.gd will call this when appropriate)

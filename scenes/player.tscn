@@ -69,23 +69,23 @@ animations = [{
 }]
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_dqkch"]
-size = Vector2(12.5, 14)
+size = Vector2(11.219439, 14.980849)
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_7vfq0"]
-size = Vector2(14, 16)
+size = Vector2(12.07437, 15.887329)
 
 [node name="Player" type="CharacterBody2D" unique_id=1802150828]
+scale = Vector2(1.6336968, 1.6336968)
 collision_layer = 2
 script = ExtResource("1_g2els")
-wall_bounce_push_force = 120.0
 
 [node name="AnimatedSprite2D" type="AnimatedSprite2D" parent="." unique_id=1236738832]
+position = Vector2(0, -1.5431352)
+scale = Vector2(0.7439287, 0.7439287)
 sprite_frames = SubResource("SpriteFrames_ykoa8")
 autoplay = "default"
-frame_progress = 0.70113224
 
 [node name="PlayerBody" type="CollisionShape2D" parent="." unique_id=381842412]
-position = Vector2(0.75, 6)
 shape = SubResource("RectangleShape2D_dqkch")
 
 [node name="Abilities" type="Node" parent="." unique_id=1995374008]
@@ -100,7 +100,6 @@ collision_layer = 8
 collision_mask = 16
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="Hurtbox" unique_id=437314072]
-position = Vector2(1, 6)
 shape = SubResource("RectangleShape2D_7vfq0")
 debug_color = Color(0.7587654, 0, 0.27456048, 0.41960785)
 

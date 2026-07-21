@@ -10,9 +10,14 @@ enum PlayerState {
 	DEAD
 }
 
-var state: PlayerState = PlayerState.NORMAL
-var _death_handled: bool = false
+enum DashType {
+	BASIC,
+	PANFLUTE,
+	BONGOS
+}
 
+var state: PlayerState = PlayerState.NORMAL
+@export var current_dash: DashType = DashType.PANFLUTE
 
 @onready var sprite: AnimatedSprite2D = $AnimatedSprite2D
 @onready var dash_ability: DashAbility = $Abilities/DashAbility
@@ -28,7 +33,7 @@ func show_dash_debug(target: Vector2) -> void:
 		line = Line2D.new()
 		line.name = "DashDebugLine"
 		line.width = 2
-		line.default_color = Color(0, 1, 0)
+		line.default_color = Color(1.0, 1.0, 1.0, 1.0)
 		add_child(line)
 
 	line.visible = true
@@ -39,16 +44,7 @@ func clear_dash_debug() -> void:
 		$DashDebugLine.visible = false
 
 func _ready() -> void:
-	# For testing: replace the scene's DashAbility with PanfluteDash by default
-	var ji_script := preload("res://scripts/abilities/basicDash.gd")
-	if dash_ability and is_instance_valid(dash_ability):
-		var parent := dash_ability.get_parent()
-		parent.remove_child(dash_ability)
-		dash_ability.queue_free()
-	# Instantiate the new dash ability and add it to the Abilities node
-	dash_ability = ji_script.new()
-	$Abilities.add_child(dash_ability)
-	dash_ability.name = "DashAbility"
+	set_dash_ability(current_dash)
 
 	# Ensure a GrappleRay RayCast2D exists for the player (used by panflute dash)
 	if not has_node("GrappleRay"):
@@ -57,6 +53,30 @@ func _ready() -> void:
 		rc.enabled = false
 		add_child(rc)
 		# Optional: set collision mask/layers in editor if needed
+
+
+func set_dash_ability(dash_type: DashType) -> void:
+	var dash_script: GDScript
+
+	match dash_type:
+		DashType.BASIC:
+			dash_script = preload("res://scripts/abilities/basicDash.gd")
+		DashType.PANFLUTE:
+			dash_script = preload("res://scripts/abilities/panfluteDash.gd")
+		DashType.BONGOS:
+			dash_script = preload("res://scripts/abilities/bongosDash.gd")
+
+	# Remove old dash ability if it exists
+	if dash_ability and is_instance_valid(dash_ability):
+		var parent := dash_ability.get_parent()
+		parent.remove_child(dash_ability)
+		dash_ability.queue_free()
+
+	# Instantiate and add the new dash ability
+	dash_ability = dash_script.new()
+	$Abilities.add_child(dash_ability)
+	dash_ability.name = "DashAbility"
+	current_dash = dash_type
 
 
 
@@ -79,7 +99,7 @@ func _ready() -> void:
 @export var max_fall_speed := 400.0
 @export var jump_cut_multiplier := 0.4
 @export var apex_threshold := 40.0
-@export var apex_gravity_mult := 0.75
+@export var apex_gravity_mult := 0.85
 @export var fall_gravity_mult := 1.2
 @export var fast_fall_gravity_mult := 1.5
 
@@ -107,13 +127,22 @@ var dash_buffer_timer := 0.0
 var dash_available := true
 var facing_direction := 1
 
+# ========== WALL JUMP BUFFER ==========
+var wall_jump_buffered := false
+var wall_jump_buffer_timer := 0.0
+@export var wall_jump_buffer_time := 0.1
+
+# ========== POST-DASH WALL BOUNCE ==========
+var post_dash_bounce_timer := 0.0
+const POST_DASH_BOUNCE_WINDOW := 0.15  # Window after upward dash ends to allow wall bounce
+
 
 # ========== WAVEDASH ==========
 
 @export_group("Wavedash")
 @export var wavedash_input_window := 0.2
 @export var wavedash_buffer_time := 0.2
-@export var wavedash_speed_mult := 1.1
+@export var wavedash_speed_mult := 1.2
 @export var wavedash_jump_velocity := -250.0
 
 var wavedash_window_timer := 0.0
@@ -144,8 +173,8 @@ var wall_normal := Vector2.ZERO
 
 # ========== WALL BOUNCE ==========
 
-@export var wall_bounce_velocity := -350.0
-@export var wall_bounce_push_force := 320.0
+@export var wall_bounce_velocity := -270.0
+@export var wall_bounce_push_force := 190.0
 @export var wall_jump_push_force := 190.0
 @export var wall_bounce_window_time := 0.2
 @export var wall_bounce_control_lock_time := 0.12
@@ -188,6 +217,10 @@ func _physics_process(delta: float) -> void:
 		if not (state == PlayerState.DASHING and not grounded) or is_next_to_wall:
 			jump_buffered = true
 			jump_buffer_timer = wavedash_buffer_time if wavedash_buffer_timer > 0.0 else jump_buffer_time
+		# Buffer wall jump if next to wall and not grounded
+		if is_next_to_wall and not grounded:
+			wall_jump_buffered = true
+			wall_jump_buffer_timer = wall_jump_buffer_time
 
 
 	# ========== DASH START ==========
@@ -283,7 +316,9 @@ func _physics_process(delta: float) -> void:
 		velocity.y = jump_velocity
 
 		jump_buffered = false
-		coyote_timer = 0.0
+		# Only clear coyote if it was actually used (grace jump)
+		if not grounded and coyote_timer > 0.0:
+			coyote_timer = 0.0
 		landing_lag_timer = 0.0
 		state = PlayerState.NORMAL
 
@@ -335,25 +370,30 @@ func _physics_process(delta: float) -> void:
 	# ========== WALL DETECTION ==========
 	# (moved to after movement so slide collisions are from the current move_and_slide)
 
-	if dash_ability.allows_wall_bounce and is_next_to_wall and not grounded and state == PlayerState.DASHING:
-		var wall_bounce_dir := dash_ability.get_wall_bounce_direction()
-
-		if wall_bounce_dir.y < 0.0:
-			wall_bounce_window_timer = wall_bounce_window_time
-			wall_bounce_normal = wall_normal
+	if dash_ability.allows_wall_bounce and is_next_to_wall and not grounded:
+		if state == PlayerState.DASHING:
+			var wall_bounce_dir := dash_ability.get_wall_bounce_direction()
+			if wall_bounce_dir.y < 0.0:
+				wall_bounce_window_timer = wall_bounce_window_time
+				wall_bounce_normal = wall_normal
+		else:
+			# Even after dash ends, keep window open if still next to wall
+			if wall_bounce_window_timer <= 0.0:
+				wall_bounce_window_timer = 0.15
+				wall_bounce_normal = wall_normal
 
 
 	# ========== WALL JUMP ==========
 
-	if jump_pressed and not jump_consumed and is_next_to_wall and not grounded and state != PlayerState.DASHING:
+	if wall_jump_buffered and not jump_consumed and is_next_to_wall and not grounded and state != PlayerState.DASHING:
 		var push_direction := int(sign(wall_normal.x))
 		velocity.x = push_direction * wall_jump_push_force
-		velocity.y = jump_velocity
+		velocity.y = jump_velocity * 0.9
 
 		jump_cut_disabled_timer = WALL_BOUNCE_JUMP_CUT_DISABLE_TIME
 		wall_bounce_control_lock_timer = wall_bounce_control_lock_time
 
-		jump_buffered = false
+		wall_jump_buffered = false
 		dash_available = true
 		state = PlayerState.WALL_BOUNCING
 		coyote_timer = 0.0
@@ -362,12 +402,19 @@ func _physics_process(delta: float) -> void:
 
 	# ========== WALL BOUNCE ==========
 
-	if jump_pressed and not jump_consumed and wall_bounce_window_timer > 0.0:
+	# Check both active dash bounce window and post-dash bounce window
+	var can_wall_bounce := (wall_bounce_window_timer > 0.0 and dash_ability.dash_direction.y < 0.0) or post_dash_bounce_timer > 0.0
+
+	if jump_pressed and not jump_consumed and can_wall_bounce and is_next_to_wall:
 		dash_ability.cancel_dash(self)
 
 		var push_direction := int(sign(wall_bounce_normal.x))
 		velocity.x = push_direction * wall_bounce_push_force
-		velocity.y = wall_bounce_velocity
+		# Boost upward velocity for diagonal bounces to make them feel better
+		var bounce_vel := wall_bounce_velocity
+		if abs(dash_ability.dash_direction.x) > 0.1:
+			bounce_vel -= 150.0  # Extra upward boost for diagonal
+		velocity.y = bounce_vel
 
 		jump_cut_disabled_timer = WALL_BOUNCE_JUMP_CUT_DISABLE_TIME
 		wall_bounce_control_lock_timer = wall_bounce_control_lock_time
@@ -377,6 +424,7 @@ func _physics_process(delta: float) -> void:
 		state = PlayerState.WALL_BOUNCING
 		coyote_timer = 0.0
 		wall_bounce_window_timer = 0.0
+		post_dash_bounce_timer = 0.0
 		jump_consumed = true
 
 
@@ -402,10 +450,17 @@ func _physics_process(delta: float) -> void:
 		if jump_buffer_timer <= 0.0:
 			jump_buffered = false
 
+	if wall_jump_buffered:
+		wall_jump_buffer_timer = tick_timer(wall_jump_buffer_timer, delta)
+
+		if wall_jump_buffer_timer <= 0.0:
+			wall_jump_buffered = false
+
 	landing_lag_timer = tick_timer(landing_lag_timer, delta)
 	wavedash_window_timer = tick_timer(wavedash_window_timer, delta)
 	wavedash_buffer_timer = tick_timer(wavedash_buffer_timer, delta)
 	wall_bounce_window_timer = tick_timer(wall_bounce_window_timer, delta)
+	post_dash_bounce_timer = tick_timer(post_dash_bounce_timer, delta)
 	jump_cut_disabled_timer = tick_timer(jump_cut_disabled_timer, delta)
 	dash_buffer_timer = tick_timer(dash_buffer_timer, delta)
 
@@ -490,6 +545,14 @@ func _physics_process(delta: float) -> void:
 	if is_on_floor() and not was_on_floor and state == PlayerState.DASHING and dash_ability.dash_direction.y > 0.0:
 		wavedash_window_timer = wavedash_input_window
 
+	# Color sprite based on dash state
+	if state == PlayerState.DASHING:
+		sprite.modulate = Color.CYAN
+	elif dash_available:
+		sprite.modulate = Color.WHITE
+	else:
+		sprite.modulate = Color.RED
+
 
 func update_wall_detection() -> void:
 	is_next_to_wall = false
@@ -541,16 +604,15 @@ func apply_corner_correction(delta: float, input_x: float) -> void:
 				return
 
 # ============ Death ==========
-func _on_hitbox_body_entered(body):
+func _on_hitbox_body_entered(_body):
 		state = PlayerState.DEAD
 		dead()
 
-func _on_hurtbox_area_entered(area):
+func _on_hurtbox_area_entered(_area):
 		state = PlayerState.DEAD
 		dead()
 
 func dead() -> void:
-	print("Game Over")
 	Engine.time_scale = 0.7
 	timer.start()
 
@@ -558,8 +620,8 @@ func _on_timer_timeout():
 	Engine.time_scale = 1.0
 	get_tree().reload_current_scene()
 
-func tick_timer(timer: float, delta: float) -> float:
-	return maxf(timer - delta, 0.0)
+func tick_timer(time_value: float, delta: float) -> float:
+	return maxf(time_value - delta, 0.0)
 
 func enter_dash_state() -> void:
 	state = PlayerState.DASHING
@@ -567,3 +629,6 @@ func enter_dash_state() -> void:
 func exit_dash_state() -> void:
 	if state == PlayerState.DASHING:
 		state = PlayerState.NORMAL
+		# If dash was upward, open a window for wall bounces after dash ends
+		if dash_ability.dash_direction.y < 0.0:
+			post_dash_bounce_timer = POST_DASH_BOUNCE_WINDOW

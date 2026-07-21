@@ -56,5 +56,5 @@ func get_wall_bounce_direction() -> Vector2:
 
 # Called by Player after move_and_slide when a slide collision occurs while dashing.
 # Default implementation does nothing. Abilities that want custom behavior should override this method.
-func handle_slide_collision(player: Player, collision) -> void:
+func handle_slide_collision(_player: Player, _collision) -> void:
 	pass

@@ -1,11 +1,8 @@
 [gd_scene format=3 uid="uid://bqrfyvsvd2pwj"]
 
-[ext_resource type="Script" uid="uid://6a2aamjmms1k" path="res://scripts/hitbox.gd" id="1_ldxio"]
-
 [node name="Hitbox" type="Area2D" unique_id=1285574423]
 collision_layer = 16
 collision_mask = 8
-script = ExtResource("1_ldxio")
 
 [node name="Timer" type="Timer" parent="." unique_id=472008348]
 wait_time = 0.5
