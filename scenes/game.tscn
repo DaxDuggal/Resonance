@@ -3,6 +3,7 @@
 [ext_resource type="PackedScene" uid="uid://chchtg3bl6325" path="res://scenes/player.tscn" id="1_uwrxv"]
 [ext_resource type="Texture2D" uid="uid://drma6hfm1eleh" path="res://assets/sprites/world_tileset.png" id="2_yqjtg"]
 [ext_resource type="PackedScene" uid="uid://bqrfyvsvd2pwj" path="res://scenes/hitbox.tscn" id="3_lnu2h"]
+[ext_resource type="PackedScene" uid="uid://bl0npq0gc3alx" path="res://scenes/pause_menu.tscn" id="4_lbhrr"]
 
 [sub_resource type="TileSetAtlasSource" id="TileSetAtlasSource_lnu2h"]
 texture = ExtResource("2_yqjtg")
@@ -362,3 +363,7 @@ script = null
 [node name="CollisionShape2D" type="CollisionShape2D" parent="Hitbox" unique_id=1398615260]
 position = Vector2(0, 1)
 shape = SubResource("WorldBoundaryShape2D_lnu2h")
+
+[node name="CanvasLayer" type="CanvasLayer" parent="." unique_id=971573487]
+
+[node name="PauseMenu" parent="CanvasLayer" unique_id=1663932191 instance=ExtResource("4_lbhrr")]

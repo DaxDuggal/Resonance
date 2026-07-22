@@ -215,6 +215,10 @@ func handle_slide_collision(player: Player, collision) -> void:
 	if normal.length() > 0.0:
 		var recoil_strength := 200.0
 		player.velocity = -normal * recoil_strength
+		# Set wall bounce window if hitting a wall going upward
+		if abs(normal.x) > 0.5 and dash_direction.y < 0.0:
+			player.wall_bounce_window_timer = 0.3  # Longer window for panflute to allow buffering
+			player.wall_bounce_normal = normal
 	else:
 		player.velocity = Vector2.ZERO
 	finish_dash(player)

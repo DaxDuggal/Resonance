@@ -17,7 +17,7 @@ enum DashType {
 }
 
 var state: PlayerState = PlayerState.NORMAL
-@export var current_dash: DashType = DashType.PANFLUTE
+@export var current_dash: DashType = DashType.BASIC
 
 @onready var sprite: AnimatedSprite2D = $AnimatedSprite2D
 @onready var dash_ability: DashAbility = $Abilities/DashAbility
@@ -44,6 +44,7 @@ func clear_dash_debug() -> void:
 		$DashDebugLine.visible = false
 
 func _ready() -> void:
+	Global.player = self
 	set_dash_ability(current_dash)
 
 	# Ensure a GrappleRay RayCast2D exists for the player (used by panflute dash)
@@ -394,7 +395,6 @@ func _physics_process(delta: float) -> void:
 		wall_bounce_control_lock_timer = wall_bounce_control_lock_time
 
 		wall_jump_buffered = false
-		dash_available = true
 		state = PlayerState.WALL_BOUNCING
 		coyote_timer = 0.0
 		jump_consumed = true
@@ -631,4 +631,8 @@ func exit_dash_state() -> void:
 		state = PlayerState.NORMAL
 		# If dash was upward, open a window for wall bounces after dash ends
 		if dash_ability.dash_direction.y < 0.0:
-			post_dash_bounce_timer = POST_DASH_BOUNCE_WINDOW
+			# Longer window for panflute to make wall bounces easier
+			if dash_ability is PanfluteDash:
+				post_dash_bounce_timer = 0.5
+			else:
+				post_dash_bounce_timer = POST_DASH_BOUNCE_WINDOW
