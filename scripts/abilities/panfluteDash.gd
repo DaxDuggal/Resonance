@@ -4,7 +4,7 @@ class_name PanfluteDash
 @export var allows_jump_interrupt: bool = true
 @export var dash_speed: float = 525.0
 @export var speed_multiplier: float = 0.85  # make it slightly slower
-@export var max_range: float = 270.0
+@export var max_range: float = 200.0
 @export var min_range: float = 8.0
 @export var dash_end_speed: float = 180.0
 
@@ -77,7 +77,7 @@ func start_dash(player: Player, dir: Vector2) -> void:
 			target = hit.get("position")
 			found_hit = true
 
-	# If no hit was found, still do the pre-dash pause to allow animation, but don't move or consume the dash
+	# If no hit was found, still do the pre-dash pause to allow animation, but don't move
 	if not found_hit:
 		# Activate ability so update_dash is called for the pause
 		super.start_dash(player, dir)
@@ -86,6 +86,7 @@ func start_dash(player: Player, dir: Vector2) -> void:
 		_pause_timer = float(pause_frames) / 60.0
 		_moving = false
 		_pre_pause_velocity = player.velocity
+		player.dash_available = false
 		# Show debug to indicate attempted grapple
 		if player.has_method("show_dash_debug"):
 			player.show_dash_debug(target)
@@ -199,8 +200,8 @@ func handle_slide_collision(player: Player, collision) -> void:
 	# Check if this is a ground hit (normal pointing up)
 	var is_ground_hit: bool = normal.y < -0.5 and dash_direction.y > 0.1
 
-	# Check if this is a wall hit (normal pointing sideways)
-	var is_wall_hit: bool = abs(normal.x) > 0.5 and dash_direction.y < 0.0 and abs(dash_direction.x) > 0.1
+	# Check if this is a wall hit (normal pointing sideways) - works for both pure up and diagonal
+	var is_wall_hit: bool = abs(normal.x) > 0.5 and dash_direction.y < 0.0
 
 	# Set wavedash window if landing from downward dash (works for air or ground starts)
 	if is_ground_hit:

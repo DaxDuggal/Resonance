@@ -45,7 +45,15 @@ func clear_dash_debug() -> void:
 
 func _ready() -> void:
 	Global.player = self
+	current_health = max_health
+	Global.last_safe_position = global_position
+	# Restore dash type from global (persists across deaths)
+	current_dash = Global.current_dash_type
 	set_dash_ability(current_dash)
+
+	# Add hurtbox to player_hitbox group so respawn zones can detect it
+	if has_node("Hurtbox"):
+		$Hurtbox.add_to_group("player_hitbox")
 
 	# Ensure a GrappleRay RayCast2D exists for the player (used by panflute dash)
 	if not has_node("GrappleRay"):
@@ -78,8 +86,17 @@ func set_dash_ability(dash_type: DashType) -> void:
 	$Abilities.add_child(dash_ability)
 	dash_ability.name = "DashAbility"
 	current_dash = dash_type
+	Global.current_dash_type = dash_type  # Save for persistence across deaths
 
 
+
+# ========== HEALTH ==========
+
+@export_group("Health")
+@export var max_health := 3
+var current_health := 3
+var invulnerability_timer := 0.0
+@export var invulnerability_duration := 1.0
 
 # ========== MOVEMENT ==========
 
@@ -174,7 +191,7 @@ var wall_normal := Vector2.ZERO
 
 # ========== WALL BOUNCE ==========
 
-@export var wall_bounce_velocity := -270.0
+@export var wall_bounce_velocity := -300.0
 @export var wall_bounce_push_force := 190.0
 @export var wall_jump_push_force := 190.0
 @export var wall_bounce_window_time := 0.2
@@ -209,6 +226,18 @@ func _physics_process(delta: float) -> void:
 		jump_pressed = false
 		input_x = 0.0
 
+	# ========== INVULNERABILITY ==========
+	if invulnerability_timer > 0.0:
+		invulnerability_timer -= delta
+		# Flash black during invulnerability
+		sprite.self_modulate = Color.BLACK
+	else:
+		# Return to normal color
+		sprite.self_modulate = Color.WHITE
+		# Return to normal state if hurt
+		if state == PlayerState.HURT:
+			state = PlayerState.NORMAL
+
 	# ========== INPUT BUFFERS ==========
 
 	if dash_pressed:
@@ -226,7 +255,7 @@ func _physics_process(delta: float) -> void:
 
 	# ========== DASH START ==========
 
-	if dash_buffer_timer > 0.0 and dash_available and state != PlayerState.DASHING:
+	if dash_buffer_timer > 0.0 and dash_available and state != PlayerState.DASHING and state != PlayerState.HURT:
 		var dash_dir := Vector2(input_x, input_y)
 
 		if dash_dir == Vector2.ZERO:
@@ -313,7 +342,7 @@ func _physics_process(delta: float) -> void:
 
 	# ========== JUMP EXECUTION ==========
 
-	if jump_buffered and (grounded or coyote_timer > 0.0) and not (state == PlayerState.DASHING and not grounded):
+	if jump_buffered and (grounded or coyote_timer > 0.0) and not (state == PlayerState.DASHING and not grounded) and state != PlayerState.HURT:
 		velocity.y = jump_velocity
 
 		jump_buffered = false
@@ -413,7 +442,7 @@ func _physics_process(delta: float) -> void:
 		# Boost upward velocity for diagonal bounces to make them feel better
 		var bounce_vel := wall_bounce_velocity
 		if abs(dash_ability.dash_direction.x) > 0.1:
-			bounce_vel -= 150.0  # Extra upward boost for diagonal
+			bounce_vel -= 20.0  # Extra upward boost for diagonal
 		velocity.y = bounce_vel
 
 		jump_cut_disabled_timer = WALL_BOUNCE_JUMP_CUT_DISABLE_TIME
@@ -603,16 +632,40 @@ func apply_corner_correction(delta: float, input_x: float) -> void:
 				global_position.x += offset.x
 				return
 
-# ============ Death ==========
-func _on_hitbox_body_entered(_body):
-		state = PlayerState.DEAD
+# ============ Death / Health ==========
+func take_damage(amount: int = 1) -> void:
+	if invulnerability_timer > 0.0:
+		return
+
+	current_health = maxf(current_health - amount, 0)
+	invulnerability_timer = invulnerability_duration
+	state = PlayerState.HURT
+
+	if current_health <= 0:
 		dead()
+
+func _on_hitbox_body_entered(_body):
+		hazard_hit()
 
 func _on_hurtbox_area_entered(_area):
-		state = PlayerState.DEAD
-		dead()
+		hazard_hit()
+
+func hazard_hit() -> void:
+	# Hazards kill you immediately (same as dying for now)
+	if invulnerability_timer > 0.0:
+		return
+	print("Hit by hazard! Dying")
+	current_health = 0
+	dead()
+
+func respawn() -> void:
+	# Teleport to last safe position, reset state but keep health
+	global_position = Global.last_safe_position
+	velocity = Vector2.ZERO
+	state = PlayerState.NORMAL
 
 func dead() -> void:
+	current_health = max_health
 	Engine.time_scale = 0.7
 	timer.start()
 

@@ -78,6 +78,7 @@ size = Vector2(12.07437, 15.887329)
 scale = Vector2(1.6336968, 1.6336968)
 collision_layer = 2
 script = ExtResource("1_g2els")
+wall_bounce_velocity = -320.0
 
 [node name="AnimatedSprite2D" type="AnimatedSprite2D" parent="." unique_id=1236738832]
 position = Vector2(0, -1.5431352)

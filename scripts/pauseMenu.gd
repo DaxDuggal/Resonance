@@ -34,5 +34,12 @@ func _on_panflute_pressed() -> void:
 	Global.player.set_dash_ability(Player.DashType.PANFLUTE)
 	resume()
 
+func _on_restart_pressed() -> void:
+	resume()
+	get_tree().reload_current_scene()
+
+func _on_quit_pressed() -> void:
+	get_tree().quit()
+
 func _process(delta):
 	testEsc()
