@@ -1,0 +1,76 @@
+[gd_scene format=3 uid="uid://ctalwguatud45"]
+
+[ext_resource type="Script" uid="uid://bkld4xc2oixqi" path="res://scripts/pauseMenu.gd" id="1_n87rw"]
+
+[node name="PauseMenu" type="Control" unique_id=1663932191]
+process_mode = 3
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_n87rw")
+
+[node name="PanelContainer" type="PanelContainer" parent="." unique_id=1014024566]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 355.0
+offset_top = 144.0
+offset_right = -399.0
+offset_bottom = -156.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="VBoxContainer" type="VBoxContainer" parent="PanelContainer" unique_id=1523603573]
+layout_mode = 2
+
+[node name="Resume" type="Button" parent="PanelContainer/VBoxContainer" unique_id=630790059]
+custom_minimum_size = Vector2(0, 50)
+layout_mode = 2
+offset_transform_position = Vector2(150, 0)
+text = "Resume"
+
+[node name="Basic" type="Button" parent="PanelContainer/VBoxContainer" unique_id=1022672917]
+custom_minimum_size = Vector2(0, 50)
+layout_mode = 2
+offset_transform_position = Vector2(150, 0)
+text = "Basic Dash"
+
+[node name="ConchShell" type="Button" parent="PanelContainer/VBoxContainer" unique_id=1321797048]
+custom_minimum_size = Vector2(0, 50)
+layout_mode = 2
+text = "Conch Shell"
+
+[node name="Bongos" type="Button" parent="PanelContainer/VBoxContainer" unique_id=334266040]
+custom_minimum_size = Vector2(0, 50)
+layout_mode = 2
+text = "Bongos Dash"
+
+[node name="Panflute" type="Button" parent="PanelContainer/VBoxContainer" unique_id=850901787]
+custom_minimum_size = Vector2(0, 50)
+layout_mode = 2
+offset_transform_position = Vector2(150, 0)
+text = "Panflute Dash"
+
+[node name="Restart" type="Button" parent="PanelContainer/VBoxContainer" unique_id=179985849]
+custom_minimum_size = Vector2(0, 50)
+layout_mode = 2
+offset_transform_position = Vector2(150, 0)
+text = "Restart"
+
+[node name="Quit" type="Button" parent="PanelContainer/VBoxContainer" unique_id=1250801027]
+custom_minimum_size = Vector2(0, 50)
+layout_mode = 2
+offset_transform_position = Vector2(150, 0)
+text = "Quit"
+
+[connection signal="pressed" from="PanelContainer/VBoxContainer/Resume" to="." method="_on_resume_pressed"]
+[connection signal="pressed" from="PanelContainer/VBoxContainer/Basic" to="." method="_on_basic_pressed"]
+[connection signal="pressed" from="PanelContainer/VBoxContainer/ConchShell" to="." method="_on_conch_shell_pressed"]
+[connection signal="pressed" from="PanelContainer/VBoxContainer/Bongos" to="." method="_on_bongos_pressed"]
+[connection signal="pressed" from="PanelContainer/VBoxContainer/Panflute" to="." method="_on_panflute_pressed"]
+[connection signal="pressed" from="PanelContainer/VBoxContainer/Restart" to="." method="_on_restart_pressed"]
+[connection signal="pressed" from="PanelContainer/VBoxContainer/Quit" to="." method="_on_quit_pressed"]

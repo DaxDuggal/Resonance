@@ -6,6 +6,7 @@ enum PlayerState {
 	NORMAL,
 	DASHING,
 	WALL_BOUNCING,
+	WALL_CLINGING,
 	HURT,
 	DEAD
 }
@@ -13,7 +14,8 @@ enum PlayerState {
 enum DashType {
 	BASIC,
 	PANFLUTE,
-	BONGOS
+	BONGOS,
+	CONCHSHELL
 }
 
 var state: PlayerState = PlayerState.NORMAL
@@ -55,14 +57,6 @@ func _ready() -> void:
 	if has_node("Hurtbox"):
 		$Hurtbox.add_to_group("player_hitbox")
 
-	# Ensure a GrappleRay RayCast2D exists for the player (used by panflute dash)
-	if not has_node("GrappleRay"):
-		var rc := RayCast2D.new()
-		rc.name = "GrappleRay"
-		rc.enabled = false
-		add_child(rc)
-		# Optional: set collision mask/layers in editor if needed
-
 
 func set_dash_ability(dash_type: DashType) -> void:
 	var dash_script: GDScript
@@ -74,6 +68,8 @@ func set_dash_ability(dash_type: DashType) -> void:
 			dash_script = preload("res://scripts/abilities/panfluteDash.gd")
 		DashType.BONGOS:
 			dash_script = preload("res://scripts/abilities/bongosDash.gd")
+		DashType.CONCHSHELL:
+			dash_script = preload("res://scripts/abilities/conchshell.gd")
 
 	# Remove old dash ability if it exists
 	if dash_ability and is_instance_valid(dash_ability):
@@ -112,13 +108,13 @@ var invulnerability_timer := 0.0
 # ========== JUMP / GRAVITY ==========
 
 @export_group("Jump / Gravity")
-@export var jump_velocity := -300.0
-@export var gravity := 750.0
+@export var jump_velocity := -320.0
+@export var gravity := 880.0
 @export var max_fall_speed := 400.0
 @export var jump_cut_multiplier := 0.4
 @export var apex_threshold := 40.0
 @export var apex_gravity_mult := 0.85
-@export var fall_gravity_mult := 1.2
+@export var fall_gravity_mult := 1.0
 @export var fast_fall_gravity_mult := 1.5
 
 var jump_cut_disabled_timer := 0.0
@@ -167,16 +163,7 @@ var wavedash_window_timer := 0.0
 var wavedash_buffer_timer := 0.0
 
 
-# ========== LANDING LAG ==========
-
-@export_group("Landing Lag")
-@export var landing_lag_time := 0.18
-@export var landing_min_fall_speed := 350.0
-@export var landing_control_factor := 0.5
-
-var landing_lag_timer := 0.0
 var was_on_floor := false
-var fall_speed := 0.0
 
 
 # ========== WALL CLING ==========
@@ -192,8 +179,8 @@ var wall_normal := Vector2.ZERO
 # ========== WALL BOUNCE ==========
 
 @export var wall_bounce_velocity := -300.0
-@export var wall_bounce_push_force := 190.0
-@export var wall_jump_push_force := 190.0
+@export var wall_bounce_push_force := 210.0
+@export var wall_jump_push_force := 200.0
 @export var wall_bounce_window_time := 0.2
 @export var wall_bounce_control_lock_time := 0.12
 
@@ -201,6 +188,12 @@ var wall_bounce_window_timer := 0.0
 var wall_bounce_normal := Vector2.ZERO
 var wall_bounce_control_lock_timer := 0.0
 var control_lock_timer := 0.0  # general purpose input/control lock (used by panflute recoil, etc.)
+# Delayed boost back into the wall so the player can climb (Hollow Knight style)
+@export var wall_climb_boost_force := 80.0
+@export var wall_climb_boost_delay := 0.08
+
+var wall_climb_boost_timer := 0.0
+var wall_climb_boost_direction := 0
 
 
 # ========== ASSISTS ==========
@@ -224,19 +217,22 @@ func _physics_process(delta: float) -> void:
 	if state == PlayerState.DEAD:
 		dash_pressed = false
 		jump_pressed = false
+		jump_released = false
 		input_x = 0.0
+		input_y = 0.0
 
 	# ========== INVULNERABILITY ==========
+	var invuln_color := Color.WHITE
 	if invulnerability_timer > 0.0:
 		invulnerability_timer -= delta
 		# Flash black during invulnerability
-		sprite.self_modulate = Color.BLACK
-	else:
-		# Return to normal color
-		sprite.self_modulate = Color.WHITE
-		# Return to normal state if hurt
-		if state == PlayerState.HURT:
-			state = PlayerState.NORMAL
+		invuln_color = Color.BLACK
+	elif state == PlayerState.HURT:
+		# Invulnerability expired; return to normal state
+		state = PlayerState.NORMAL
+
+	if sprite.self_modulate != invuln_color:
+		sprite.self_modulate = invuln_color
 
 	# ========== INPUT BUFFERS ==========
 
@@ -274,11 +270,31 @@ func _physics_process(delta: float) -> void:
 	if state == PlayerState.DASHING:
 		dash_ability.update_dash(self, delta)
 
+		# Check wall bounce BEFORE wavedash/interrupt so it takes priority
+		var wall_bounce_from_window := wall_bounce_window_timer > 0.0 or post_dash_bounce_timer > 0.0
+		if jump_pressed and not jump_consumed and wall_bounce_from_window and dash_ability.dash_direction.y < 0.0:
+			dash_ability.cancel_dash(self)
+			var push_direction := int(sign(wall_bounce_normal.x))
+			velocity.x = push_direction * wall_bounce_push_force
+			var bounce_vel := wall_bounce_velocity
+			if abs(dash_ability.dash_direction.x) > 0.1:
+				bounce_vel -= 20.0
+			velocity.y = bounce_vel
+			jump_cut_disabled_timer = WALL_BOUNCE_JUMP_CUT_DISABLE_TIME
+			wall_bounce_control_lock_timer = wall_bounce_control_lock_time
+			jump_buffered = false
+			state = PlayerState.WALL_BOUNCING
+			coyote_timer = 0.0
+			wall_bounce_window_timer = 0.0
+			post_dash_bounce_timer = 0.0
+			jump_consumed = true
+
 		# Compute wavedash possibility first so a jump press this frame triggers wavedash
 		var wavedash_possible := false
 		if dash_ability.allows_wavedash:
 			var wavedash_dir := dash_ability.get_wavedash_direction()
-			if wavedash_dir.y > 0.0 and wavedash_dir.x != 0.0 and grounded:
+			# Wavedash only from downward dashes with horizontal component (not pure vertical)
+			if wavedash_dir.y > 0.0 and abs(wavedash_dir.x) > 0.1 and grounded:
 				wavedash_window_timer = wavedash_input_window
 				wavedash_possible = true
 
@@ -297,10 +313,6 @@ func _physics_process(delta: float) -> void:
 
 		if direction != 0.0:
 			facing_direction = int(sign(direction))
-
-		if landing_lag_timer > 0.0:
-			accel *= landing_control_factor
-			fric *= landing_control_factor
 
 		var max_spd := max_speed if grounded else max_air_speed
 		var target_speed := direction * max_spd
@@ -349,7 +361,6 @@ func _physics_process(delta: float) -> void:
 		# Only clear coyote if it was actually used (grace jump)
 		if not grounded and coyote_timer > 0.0:
 			coyote_timer = 0.0
-		landing_lag_timer = 0.0
 		state = PlayerState.NORMAL
 
 
@@ -359,58 +370,54 @@ func _physics_process(delta: float) -> void:
 		velocity.y *= jump_cut_multiplier
 
 
+	# ========== WALL CLING STATE ==========
+
+	# Check if should enter wall cling state
+	var pushing_into_wall := (
+		(wall_normal.x < 0.0 and input_x > 0.0)
+		or
+		(wall_normal.x > 0.0 and input_x < 0.0)
+	)
+
+	if not grounded and is_next_to_wall and velocity.y > 0.0 and pushing_into_wall and state == PlayerState.NORMAL:
+		state = PlayerState.WALL_CLINGING
+	elif state == PlayerState.WALL_CLINGING and (grounded or not is_next_to_wall or not pushing_into_wall):
+		state = PlayerState.NORMAL
+
+	# ========== WALL CLIMB BOOST ==========
+
+	if wall_climb_boost_timer > 0.0:
+		wall_climb_boost_timer -= delta
+		if wall_climb_boost_timer <= 0.0:
+			# Apply the boost back towards wall
+			velocity.x -= wall_climb_boost_direction * wall_climb_boost_force
+
 	# ========== GRAVITY ==========
-	
-	# Skip gravity while DASHING so dash velocity isn't pulled down slightly
+
+	# Skip gravity only while DASHING so dash velocity isn't pulled down slightly.
+	# Gravity still applies when HURT, DEAD, etc. so the player falls naturally during those states.
 	if not grounded and state != PlayerState.DASHING:
 		var gravity_mult := 1.0
-	
+
 		if abs(velocity.y) < apex_threshold:
 			gravity_mult = apex_gravity_mult
-	
+
 		elif velocity.y > 0.0:
 			gravity_mult = fall_gravity_mult
-	
+
 			if can_fast_fall and input_y > 0.0 and abs(input_x) < 0.1:
 				gravity_mult *= fast_fall_gravity_mult
-	
-		var pushing_into_wall := (
-			(wall_normal.x < 0.0 and input_x > 0.0)
-			or
-			(wall_normal.x > 0.0 and input_x < 0.0)
-		)
-	
-		if is_next_to_wall and velocity.y > 0.0 and pushing_into_wall:
+
+		# Apply wall cling physics
+		if state == PlayerState.WALL_CLINGING:
 			gravity_mult *= wall_cling_gravity_mult
 			velocity.y = min(velocity.y, wall_cling_max_fall_speed)
-	
+
 		velocity.y += gravity * gravity_mult * delta
 		velocity.y = min(velocity.y, max_fall_speed)
-	
 
-	# ========== LANDING LAG ==========
-
-	if grounded and not was_on_floor:
-		if fall_speed >= landing_min_fall_speed and state != PlayerState.DASHING:
-			landing_lag_timer = landing_lag_time
 
 	was_on_floor = grounded
-
-
-	# ========== WALL DETECTION ==========
-	# (moved to after movement so slide collisions are from the current move_and_slide)
-
-	if dash_ability.allows_wall_bounce and is_next_to_wall and not grounded:
-		if state == PlayerState.DASHING:
-			var wall_bounce_dir := dash_ability.get_wall_bounce_direction()
-			if wall_bounce_dir.y < 0.0:
-				wall_bounce_window_timer = wall_bounce_window_time
-				wall_bounce_normal = wall_normal
-		else:
-			# Even after dash ends, keep window open if still next to wall
-			if wall_bounce_window_timer <= 0.0:
-				wall_bounce_window_timer = 0.15
-				wall_bounce_normal = wall_normal
 
 
 	# ========== WALL JUMP ==========
@@ -418,7 +425,16 @@ func _physics_process(delta: float) -> void:
 	if wall_jump_buffered and not jump_consumed and is_next_to_wall and not grounded and state != PlayerState.DASHING:
 		var push_direction := int(sign(wall_normal.x))
 		velocity.x = push_direction * wall_jump_push_force
-		velocity.y = jump_velocity * 0.9
+		velocity.y = jump_velocity * 0.8
+
+		# If in wall cling state and holding towards wall, add climb boost.
+		# pushing_into_wall was already computed above and nothing has changed it since.
+		if state == PlayerState.WALL_CLINGING and pushing_into_wall:
+			# Significantly higher jump when climbing
+			velocity.y = jump_velocity
+			# Schedule boost back towards wall to help climbing (apply after a short delay)
+			wall_climb_boost_timer = wall_climb_boost_delay
+			wall_climb_boost_direction = push_direction
 
 		jump_cut_disabled_timer = WALL_BOUNCE_JUMP_CUT_DISABLE_TIME
 		wall_bounce_control_lock_timer = wall_bounce_control_lock_time
@@ -429,40 +445,17 @@ func _physics_process(delta: float) -> void:
 		jump_consumed = true
 
 
-	# ========== WALL BOUNCE ==========
-
-	# Check both active dash bounce window and post-dash bounce window
-	var can_wall_bounce := (wall_bounce_window_timer > 0.0 and dash_ability.dash_direction.y < 0.0) or post_dash_bounce_timer > 0.0
-
-	if jump_pressed and not jump_consumed and can_wall_bounce and is_next_to_wall:
-		dash_ability.cancel_dash(self)
-
-		var push_direction := int(sign(wall_bounce_normal.x))
-		velocity.x = push_direction * wall_bounce_push_force
-		# Boost upward velocity for diagonal bounces to make them feel better
-		var bounce_vel := wall_bounce_velocity
-		if abs(dash_ability.dash_direction.x) > 0.1:
-			bounce_vel -= 20.0  # Extra upward boost for diagonal
-		velocity.y = bounce_vel
-
-		jump_cut_disabled_timer = WALL_BOUNCE_JUMP_CUT_DISABLE_TIME
-		wall_bounce_control_lock_timer = wall_bounce_control_lock_time
-
-		jump_buffered = false
-		dash_available = true
-		state = PlayerState.WALL_BOUNCING
-		coyote_timer = 0.0
-		wall_bounce_window_timer = 0.0
-		post_dash_bounce_timer = 0.0
-		jump_consumed = true
-
-
 	# ========== COYOTE / DASH REFRESH ==========
 
 	if grounded:
 		coyote_timer = coyote_time
-		dash_available = true
+		# Only restore dash if not currently dashing upward
+		var dashing_upward := state == PlayerState.DASHING and dash_ability.dash_direction.y < 0.0
+		if not dashing_upward:
+			dash_available = true
 		can_fast_fall = false
+		# Landing cancels any pending wall climb boost
+		wall_climb_boost_timer = 0.0
 
 	else:
 		coyote_timer = tick_timer(coyote_timer, delta)
@@ -485,7 +478,6 @@ func _physics_process(delta: float) -> void:
 		if wall_jump_buffer_timer <= 0.0:
 			wall_jump_buffered = false
 
-	landing_lag_timer = tick_timer(landing_lag_timer, delta)
 	wavedash_window_timer = tick_timer(wavedash_window_timer, delta)
 	wavedash_buffer_timer = tick_timer(wavedash_buffer_timer, delta)
 	wall_bounce_window_timer = tick_timer(wall_bounce_window_timer, delta)
@@ -516,10 +508,9 @@ func _physics_process(delta: float) -> void:
 
 	# ========== APPLY MOVEMENT ==========
 
-	fall_speed = velocity.y
 	# Before moving, perform a segment check ahead for dash movement to avoid sliding past thin platforms
-	if state == PlayerState.DASHING and dash_ability and is_instance_valid(dash_ability) and dash_ability.is_active and velocity.length() > 1.0:
-		var next_pos := global_position + velocity * get_physics_process_delta_time()
+	if state == PlayerState.DASHING and is_instance_valid(dash_ability) and dash_ability.is_active and velocity.length() > 1.0:
+		var next_pos := global_position + velocity * delta
 		var space = get_world_2d().direct_space_state
 		var params = PhysicsRayQueryParameters2D.new()
 		params.from = global_position
@@ -533,9 +524,20 @@ func _physics_process(delta: float) -> void:
 			global_position = safe_pos
 			# Zero velocity immediately
 			velocity = Vector2.ZERO
+
+			# We return before move_and_slide, so update_wall_detection() never runs this
+			# frame. Seed the wall state from the raycast hit so wall jumps / wall bounces
+			# still register on the frame a dash slams into a wall.
+			var hit_normal: Vector2 = hit.get("normal", Vector2.ZERO)
+			if abs(hit_normal.x) > 0.5 and abs(hit_normal.y) < 0.5:
+				is_next_to_wall = true
+				wall_normal = hit_normal
+			else:
+				is_next_to_wall = false
+				wall_normal = Vector2.ZERO
+
 			# Let ability handle the collision; it accepts either a Dictionary (from intersect_ray) or a slide collision
-			if dash_ability.has_method("handle_slide_collision"):
-				dash_ability.handle_slide_collision(self, hit)
+			dash_ability.handle_slide_collision(self, hit)
 			# Skip calling move_and_slide this frame since we've already positioned the body
 			return
 
@@ -545,42 +547,39 @@ func _physics_process(delta: float) -> void:
 	update_wall_detection()
 
 	# If we just slid into something while DASHING, let certain dash abilities react immediately.
-	if state == PlayerState.DASHING and dash_ability and is_instance_valid(dash_ability) and dash_ability.is_active:
-		var collision_count := get_slide_collision_count()
-		if collision_count > 0:
-			for i in range(collision_count):
-				var collision := get_slide_collision(i)
-				if collision and dash_ability.has_method("handle_slide_collision"):
-					var normal := collision.get_normal()
-					# Use the actual movement vector (dash_velocity when available) so collisions
-					# that oppose the player's motion trigger even if the dash target lies beyond.
-					var mdir := Vector2.ZERO
-					if dash_ability.dash_velocity.length() > 0.001:
-						mdir = dash_ability.dash_velocity.normalized()
-					else:
-						mdir = dash_ability.dash_direction.normalized()
-					# Trigger if the collision surface opposes the movement direction
-					if mdir.dot(normal) < -0.3:
-						# For grapple dash (PanfluteDash), zero momentum immediately so player
-						# doesn't slide past the surface, then let the ability handle recoil.
-						if dash_ability is PanfluteDash:
-							velocity = Vector2.ZERO
-							dash_ability.handle_slide_collision(self, collision)
-						else:
-							dash_ability.handle_slide_collision(self, collision)
-						break
+	if state == PlayerState.DASHING and is_instance_valid(dash_ability) and dash_ability.is_active:
+		# Use the actual movement vector (dash_velocity when available) so collisions
+		# that oppose the player's motion trigger even if the dash target lies beyond.
+		var mdir := dash_ability.dash_direction.normalized()
+		if dash_ability.dash_velocity.length() > 0.001:
+			mdir = dash_ability.dash_velocity.normalized()
+
+		for i in range(get_slide_collision_count()):
+			var collision := get_slide_collision(i)
+			if not collision:
+				continue
+			# Trigger if the collision surface opposes the movement direction
+			if mdir.dot(collision.get_normal()) < -0.3:
+				# For grapple dash (PanfluteDash), zero momentum immediately so player
+				# doesn't slide past the surface.
+				if dash_ability is PanfluteDash:
+					velocity = Vector2.ZERO
+				dash_ability.handle_slide_collision(self, collision)
+				break
 
 	# Set wavedash window if landed from downward dash (after move_and_slide so is_on_floor() is updated)
 	if is_on_floor() and not was_on_floor and state == PlayerState.DASHING and dash_ability.dash_direction.y > 0.0:
 		wavedash_window_timer = wavedash_input_window
 
-	# Color sprite based on dash state
+	# Color sprite based on dash state (only write when it actually changes)
+	var target_modulate := Color.RED
 	if state == PlayerState.DASHING:
-		sprite.modulate = Color.CYAN
+		target_modulate = Color.CYAN
 	elif dash_available:
-		sprite.modulate = Color.WHITE
-	else:
-		sprite.modulate = Color.RED
+		target_modulate = Color.WHITE
+
+	if sprite.modulate != target_modulate:
+		sprite.modulate = target_modulate
 
 
 func update_wall_detection() -> void:
@@ -637,18 +636,18 @@ func take_damage(amount: int = 1) -> void:
 	if invulnerability_timer > 0.0:
 		return
 
-	current_health = maxf(current_health - amount, 0)
+	current_health = maxi(current_health - amount, 0)
 	invulnerability_timer = invulnerability_duration
 	state = PlayerState.HURT
 
 	if current_health <= 0:
 		dead()
 
-func _on_hitbox_body_entered(_body):
-		hazard_hit()
+func _on_hitbox_body_entered(_body: Node2D) -> void:
+	hazard_hit()
 
-func _on_hurtbox_area_entered(_area):
-		hazard_hit()
+func _on_hurtbox_area_entered(_area: Area2D) -> void:
+	hazard_hit()
 
 func hazard_hit() -> void:
 	# Hazards kill you immediately (same as dying for now)
@@ -665,11 +664,16 @@ func respawn() -> void:
 	state = PlayerState.NORMAL
 
 func dead() -> void:
+	# Guard against re-entry (e.g. two hazards overlapping in the same frame)
+	if state == PlayerState.DEAD:
+		return
+
+	state = PlayerState.DEAD
 	current_health = max_health
 	Engine.time_scale = 0.7
 	timer.start()
 
-func _on_timer_timeout():
+func _on_timer_timeout() -> void:
 	Engine.time_scale = 1.0
 	get_tree().reload_current_scene()
 

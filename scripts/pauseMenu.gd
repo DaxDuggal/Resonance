@@ -1,38 +1,38 @@
 extends Control
 
-func _ready():
+func _ready() -> void:
 	visible = false
 
-func resume():
+func resume() -> void:
 	get_tree().paused = false
 	Global.is_paused = false
 	visible = false
 
-func pause():
+func pause() -> void:
 	get_tree().paused = true
 	Global.is_paused = true
 	visible = true
 
-func testEsc():
-	if Input.is_action_just_pressed("esc") and get_tree().paused == false:
-		pause()
-	elif Input.is_action_just_pressed("esc") and get_tree().paused == true:
-		resume()
+# Swap the player's dash and unpause. Safe if the player isn't in the scene yet.
+func _select_dash(dash_type: Player.DashType) -> void:
+	if is_instance_valid(Global.player):
+		Global.player.set_dash_ability(dash_type)
+	resume()
 
 func _on_resume_pressed() -> void:
 	resume()
 
 func _on_basic_pressed() -> void:
-	Global.player.set_dash_ability(Player.DashType.BASIC)
-	resume()
+	_select_dash(Player.DashType.BASIC)
+
+func _on_conch_shell_pressed() -> void:
+	_select_dash(Player.DashType.CONCHSHELL)
 
 func _on_bongos_pressed() -> void:
-	Global.player.set_dash_ability(Player.DashType.BONGOS)
-	resume()
+	_select_dash(Player.DashType.BONGOS)
 
 func _on_panflute_pressed() -> void:
-	Global.player.set_dash_ability(Player.DashType.PANFLUTE)
-	resume()
+	_select_dash(Player.DashType.PANFLUTE)
 
 func _on_restart_pressed() -> void:
 	resume()
@@ -41,5 +41,11 @@ func _on_restart_pressed() -> void:
 func _on_quit_pressed() -> void:
 	get_tree().quit()
 
-func _process(delta):
-	testEsc()
+# Event-driven instead of polling every frame in _process
+func _unhandled_input(event: InputEvent) -> void:
+	if event.is_action_pressed("esc"):
+		if get_tree().paused:
+			resume()
+		else:
+			pause()
+		get_viewport().set_input_as_handled()

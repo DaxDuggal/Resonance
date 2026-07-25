@@ -2,7 +2,7 @@ extends DashAbility
 class_name BasicDash
 
 @export var dash_speed := 350.0
-@export var dash_duration := 0.2
+@export var dash_duration := 0.18
 @export var dash_end_speed := 180.0
 
 var timer := 0.0
@@ -17,7 +17,6 @@ func start_dash(player: Player, dir: Vector2) -> void:
 	player.velocity = dash_velocity
 	player.dash_available = false
 	player.dash_buffer_timer = 0.0
-	player.landing_lag_timer = 0.0
 
 
 func update_dash(player: Player, delta: float) -> void:

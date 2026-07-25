@@ -2,12 +2,13 @@ extends DashAbility
 class_name JumpInterruptDash
 
 @export var dash_speed: float = 350.0
-@export var dash_duration: float = 0.2
+@export var dash_duration: float = 0.18
 @export var dash_end_speed: float = 180.0
 
-@export var allows_jump_interrupt: bool = true
-
 var timer: float = 0.0
+
+func _init() -> void:
+	allows_jump_interrupt = true
 
 func start_dash(player: Player, dir: Vector2) -> void:
 	super.start_dash(player, dir)
@@ -18,7 +19,6 @@ func start_dash(player: Player, dir: Vector2) -> void:
 	player.velocity = dash_velocity
 	player.dash_available = false
 	player.dash_buffer_timer = 0.0
-	player.landing_lag_timer = 0.0
 
 func update_dash(player: Player, delta: float) -> void:
 	timer -= delta
@@ -114,7 +114,6 @@ func interrupt_with_jump(player: Player) -> void:
 	# Up-diagonal dash -> perform a wall bounce (reverse x push and upward bounce)
 	if dir.y < 0.0 and absx > 0.1 and absy > 0.1:
 		# emulate wall bounce: push opposite horizontal direction
-		cancel_dash(player)
 		var push_direction := -int(sign(dir.x))
 		player.velocity.x = push_direction * player.wall_bounce_push_force
 		player.velocity.y = player.wall_bounce_velocity
@@ -126,9 +125,6 @@ func interrupt_with_jump(player: Player) -> void:
 		player.jump_buffered = false
 		player.state = player.PlayerState.WALL_BOUNCING
 		player.coyote_timer = 0.0
-		# Only refresh dash if this was a real wall bounce (player is next to a wall)
-		if player.is_next_to_wall:
-			player.dash_available = true
 		return
 
 	# Down-diagonal dash -> start a wavedash

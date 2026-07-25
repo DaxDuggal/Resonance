@@ -1,15 +1,10 @@
 extends DashAbility
 class_name PanfluteDash
 
-@export var allows_jump_interrupt: bool = true
 @export var dash_speed: float = 525.0
 @export var speed_multiplier: float = 0.85  # make it slightly slower
-@export var max_range: float = 200.0
-@export var min_range: float = 8.0
+@export var max_range: float = 150.0
 @export var dash_end_speed: float = 180.0
-
-# how close a hit must be to be considered (prevents zero-duration dashes)
-@export var min_acceptable_distance: float = 4.0
 
 # Pause before moving (frames)
 @export var pause_frames: int = 3
@@ -17,8 +12,10 @@ class_name PanfluteDash
 # Speed ramp-up after pause (frames) - gradually accelerate to full speed
 @export var ramp_frames: int = 15
 
+# Wall bounce window after a grapple hits a wall (longer than default to allow buffering)
+@export var wall_bounce_window_time: float = 0.3
 
-var timer: float = 0.0
+
 var _pause_timer: float = 0.0
 var _moving: bool = false
 var _speed_factor: float = 1.0
@@ -27,7 +24,14 @@ var _pre_pause_velocity: Vector2 = Vector2.ZERO
 var _abort_after_pause: bool = false
 var _skip_consume: bool = false
 
+func _init() -> void:
+	allows_jump_interrupt = true
+
 func start_dash(player: Player, dir: Vector2) -> void:
+	# Reset per-dash flags so a previous aborted grapple can't leak state
+	_abort_after_pause = false
+	_skip_consume = false
+
 	# Track whether the raycast found a valid target for grappling
 	var found_hit: bool = false
 
@@ -96,16 +100,11 @@ func start_dash(player: Player, dir: Vector2) -> void:
 	# Commit to dash now that checks passed
 	super.start_dash(player, dir)
 
-	# Tell player to draw debug line to the hit/target (if they support it)
-	if player.has_method("show_dash_debug"):
-		player.show_dash_debug(target)
-
 	# Apply speed multiplier and set dash velocity
 	var effective_speed: float = dash_speed * speed_multiplier
 	dash_velocity = dash_direction.normalized() * effective_speed
 
-	# Set a large timer as a safety fallback (collision will stop dash early)
-	timer = max_range / effective_speed
+	# No timer - dash only ends on collision detection, not by time
 
 	# Start with a short pause so animation can play
 	_pause_timer = float(pause_frames) / 60.0
@@ -117,7 +116,6 @@ func start_dash(player: Player, dir: Vector2) -> void:
 	if not _skip_consume:
 		player.dash_available = false
 		player.dash_buffer_timer = 0.0
-		player.landing_lag_timer = 0.0
 
 
 func update_dash(player: Player, delta: float) -> void:
@@ -152,18 +150,21 @@ func update_dash(player: Player, delta: float) -> void:
 		_ramp_tween.set_ease(Tween.EASE_OUT)
 		_ramp_tween.tween_property(self, "_speed_factor", 1.0, float(ramp_frames) / 60.0)
 
-	# Maintain dash velocity until timer expires
-	timer -= delta
-	player.velocity = dash_velocity * _speed_factor
+		# Show max_range visualization
+		var max_range_endpoint = player.global_position + dash_direction.normalized() * max_range
+		if player.has_method("show_dash_debug"):
+			player.show_dash_debug(max_range_endpoint)
 
-	if timer <= 0.0:
-		finish_dash(player)
+	# Maintain dash velocity (collision detection stops dash)
+	player.velocity = dash_velocity * _speed_factor
 
 func finish_dash(player: Player) -> void:
 	is_active = false
 
-	# End dash: apply a gentle horizontal end velocity and preserve vertical velocity behavior
-	player.velocity.x = dash_direction.x * dash_end_speed
+	# For upward dashes, don't apply horizontal velocity (allows wall bouncing)
+	# For downward/horizontal dashes, apply end velocity normally
+	if dash_direction.y >= 0.0:
+		player.velocity.x = dash_direction.x * dash_end_speed
 
 	# Soften upward component if dash had upward direction
 	if dash_direction.y < 0.0:
@@ -207,21 +208,12 @@ func handle_slide_collision(player: Player, collision) -> void:
 	if is_ground_hit:
 		player.wavedash_window_timer = player.wavedash_input_window
 
-	# Set wall bounce window if hitting wall with upward diagonal dash
+	# Set wall bounce window if hitting a wall going upward (straight or diagonal).
+	# Longer than the default window so panflute jumps can be buffered.
 	if is_wall_hit:
-		player.wall_bounce_window_timer = player.wall_bounce_window_time
+		player.wall_bounce_window_timer = wall_bounce_window_time
 		player.wall_bounce_normal = normal
 
-	# Apply small recoil when hitting something (like Kevin block but weaker)
-	if normal.length() > 0.0:
-		var recoil_strength := 200.0
-		player.velocity = -normal * recoil_strength
-		# Set wall bounce window if hitting a wall going upward
-		if abs(normal.x) > 0.5 and dash_direction.y < 0.0:
-			player.wall_bounce_window_timer = 0.3  # Longer window for panflute to allow buffering
-			player.wall_bounce_normal = normal
-	else:
-		player.velocity = Vector2.ZERO
 	finish_dash(player)
 
 # Allow jump to interrupt this dash (player.gd will call this when appropriate)

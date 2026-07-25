@@ -6,9 +6,8 @@ signal dash_finished
 
 
 @export var allows_wavedash := true
-@export var allows_wall_bounce := true
-# Default recoil force applied when a dash hits a surface and the ability doesn't implement its own reaction
-@export var default_recoil_force: float = 80.0
+# Whether pressing jump mid-dash can interrupt it (abilities that implement interrupt_with_jump)
+@export var allows_jump_interrupt := false
 
 var is_active := false
 var dash_direction := Vector2.RIGHT
@@ -47,10 +46,6 @@ func cancel_dash(player: Player) -> void:
 
 
 func get_wavedash_direction() -> Vector2:
-	return dash_direction
-
-
-func get_wall_bounce_direction() -> Vector2:
 	return dash_direction
 
 
