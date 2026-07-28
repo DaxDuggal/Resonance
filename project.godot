@@ -114,7 +114,7 @@ esc={
 2d_physics/layer_5="Hitbox"
 2d_physics/layer_6="PlayerHurtbox"
 2d_physics/layer_7="EnemyHurtbox"
-2d_physics/layer_8="HazardRespawn"
+2d_physics/layer_8="Hazard"
 
 [physics]
 

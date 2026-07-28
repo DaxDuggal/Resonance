@@ -2,7 +2,7 @@ extends DashAbility
 class_name ConchShellDash
 
 @export var dash_speed: float = 350.0
-@export var max_dash_duration: float = 0.5  # How long you can hold it
+@export var max_dash_duration: float = 0.3  # How long you can hold it
 @export var turn_speed: float = 7.0  # How quickly to turn toward input direction
 @export var dash_end_speed: float = 200.0  # Momentum preserved on release
 
