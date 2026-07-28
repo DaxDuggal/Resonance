@@ -50,7 +50,7 @@ func _ready() -> void:
 	current_health = max_health
 	Global.last_safe_position = global_position
 	# Restore dash type from global (persists across deaths)
-	current_dash = Global.current_dash_type
+	current_dash = Global.current_dash_type as DashType
 	set_dash_ability(current_dash)
 
 	# Add hurtbox to player_hitbox group so respawn zones can detect it
@@ -311,7 +311,7 @@ func _handle_checkpoint(grounded: bool) -> void:
 		Global.last_safe_position = global_position
 
 
-func _handle_dash_state(delta: float, input_x: float, input_y: float, jump_pressed: bool, grounded: bool, jump_consumed: int) -> int:
+func _handle_dash_state(delta: float, _input_x: float, _input_y: float, jump_pressed: bool, grounded: bool, jump_consumed: int) -> int:
 	if state != PlayerState.DASHING:
 		return jump_consumed
 
@@ -379,7 +379,7 @@ func _handle_normal_movement(input_x: float, grounded: bool, delta: float) -> vo
 		velocity.x = move_toward(velocity.x, 0.0, fric * delta)
 
 
-func _handle_wavedash(input_x: float, jump_pressed: bool, grounded: bool, jump_consumed: int) -> int:
+func _handle_wavedash(input_x: float, jump_pressed: bool, _grounded: bool, jump_consumed: int) -> int:
 	if wavedash_window_timer <= 0.0 or not jump_pressed or jump_consumed:
 		return jump_consumed
 
@@ -402,7 +402,7 @@ func _handle_wavedash(input_x: float, jump_pressed: bool, grounded: bool, jump_c
 	return 1
 
 
-func _handle_jump_execution(jump_pressed: bool, jump_released: bool, grounded: bool, jump_consumed: int) -> int:
+func _handle_jump_execution(_jump_pressed: bool, jump_released: bool, grounded: bool, jump_consumed: int) -> int:
 	if jump_released and velocity.y < -100.0 and state != PlayerState.DASHING and jump_cut_disabled_timer <= 0.0:
 		velocity.y *= jump_cut_multiplier
 
@@ -471,7 +471,7 @@ func _handle_gravity(input_x: float, input_y: float, grounded: bool, delta: floa
 	velocity.y = min(velocity.y, max_fall_speed)
 
 
-func _handle_wall_jump(input_x: float, jump_pressed: bool, grounded: bool, jump_consumed: int) -> int:
+func _handle_wall_jump(input_x: float, _jump_pressed: bool, grounded: bool, jump_consumed: int) -> int:
 	if not wall_jump_buffered or jump_consumed or not is_next_to_wall or grounded or state == PlayerState.DASHING:
 		return jump_consumed
 
@@ -499,7 +499,7 @@ func _handle_wall_jump(input_x: float, jump_pressed: bool, grounded: bool, jump_
 	return 1
 
 
-func _handle_coyote_and_dash_refresh(input_x: float, input_y: float, grounded: bool, delta: float) -> void:
+func _handle_coyote_and_dash_refresh(_input_x: float, input_y: float, grounded: bool, delta: float) -> void:
 	if grounded:
 		coyote_timer = coyote_time
 		var dashing_upward := state == PlayerState.DASHING and dash_ability.dash_direction.y < 0.0
