@@ -47,7 +47,21 @@ func clear_dash_debug() -> void:
 
 func _ready() -> void:
 	Global.player = self
-	current_health = max_health
+
+	# On respawn after death, start at the last checkpoint instead of the
+	# scene's default spawn position. Global persists across reload_current_scene()
+	# since it's an autoload, so this correctly carries over from before death.
+	if Global.has_checkpoint:
+		global_position = Global.last_checkpoint_position
+
+	# Restore health from a loaded save if one was just applied. Consumed
+	# once so ordinary deaths/reloads still default to full health.
+	if Global.saved_current_health >= 0:
+		current_health = Global.saved_current_health
+		Global.saved_current_health = -1
+	else:
+		current_health = max_health
+
 	Global.last_safe_position = global_position
 	# Restore dash type from global (persists across deaths)
 	current_dash = Global.current_dash_type as DashType
@@ -102,10 +116,10 @@ var invulnerability_timer := 0.0
 # ========== MOVEMENT ==========
 
 @export_group("Movement")
-@export var max_speed := 150.0
-@export var max_air_speed := 140.0
+@export var max_speed := 160.0
+@export var max_air_speed := 150.0
 @export var acceleration := 1200.0
-@export var air_acceleration := 900.0
+@export var air_acceleration := 1200.0
 @export var friction := 1800.0
 @export var air_friction := 300.0
 
@@ -113,12 +127,12 @@ var invulnerability_timer := 0.0
 # ========== JUMP / GRAVITY ==========
 
 @export_group("Jump / Gravity")
-@export var jump_velocity := -320.0
-@export var gravity := 880.0
-@export var max_fall_speed := 400.0
+@export var jump_velocity := -330.0
+@export var gravity := 900.0
+@export var max_fall_speed := 500.0
 @export var jump_cut_multiplier := 0.4
 @export var apex_threshold := 40.0
-@export var apex_gravity_mult := 0.85
+@export var apex_gravity_mult := 0.9
 @export var fall_gravity_mult := 1.0
 @export var fast_fall_gravity_mult := 1.5
 
@@ -183,7 +197,7 @@ var wall_normal := Vector2.ZERO
 
 # ========== WALL BOUNCE ==========
 
-@export var wall_bounce_velocity := -300.0
+@export var wall_bounce_velocity := -400.0
 @export var wall_bounce_push_force := 210.0
 @export var wall_jump_push_force := 200.0
 @export var wall_bounce_window_time := 0.2
@@ -286,7 +300,8 @@ func _handle_input_buffers(jump_pressed: bool, dash_pressed: bool, grounded: boo
 		if not (state == PlayerState.DASHING and not grounded) or is_next_to_wall:
 			jump_buffered = true
 			jump_buffer_timer = wavedash_buffer_time if wavedash_buffer_timer > 0.0 else jump_buffer_time
-		if is_next_to_wall and not grounded:
+		# Buffer wall jump even if not on wall yet; will execute when landing on wall
+		if not grounded:
 			wall_jump_buffered = true
 			wall_jump_buffer_timer = wall_jump_buffer_time
 
@@ -348,6 +363,11 @@ func _handle_dash_state(delta: float, _input_x: float, _input_y: float, jump_pre
 	if jump_pressed and not jump_consumed:
 		if dash_ability.has_method("interrupt_with_jump") and dash_ability.allows_jump_interrupt and not wavedash_possible:
 			dash_ability.interrupt_with_jump(self)
+			# Clear the buffer so this same press can't also trigger a normal
+			# jump on a later frame (e.g. via coyote time) and overwrite the
+			# bounce/interrupt velocity we just applied. The wall-bounce branch
+			# above already does this; this branch was missing it.
+			jump_buffered = false
 			return 1
 
 	return jump_consumed
@@ -589,8 +609,12 @@ func _apply_movement(delta: float) -> void:
 				dash_ability.handle_slide_collision(self, collision)
 				break
 
-	# Wavedash window on landing
-	if is_on_floor() and not was_on_floor and state == PlayerState.DASHING and dash_ability.dash_direction.y > 0.0:
+	# Wavedash window on landing (requires horizontal component, same as the
+	# mid-dash wavedash_possible check in _handle_dash_state — a pure vertical
+	# down dash should never arm this, it's not a wavedash candidate, and
+	# letting it through here creates a lingering window that steals the jump
+	# press from BongosDash's down-dash bounce/grace-window logic)
+	if is_on_floor() and not was_on_floor and state == PlayerState.DASHING and dash_ability.dash_direction.y > 0.0 and abs(dash_ability.dash_direction.x) > 0.1:
 		wavedash_window_timer = wavedash_input_window
 
 	# Update sprite color
@@ -672,7 +696,7 @@ func take_enemy_damage(amount: int = 1) -> void:
 func _on_hitbox_body_entered(_body: Node2D) -> void:
 	hazard_hit()
 
-func _on_hurtbox_area_entered(_area: Area2D) -> void:
+func _on_hitbox_area_entered(_area: Area2D) -> void:
 	hazard_hit()
 
 func hazard_hit() -> void:
@@ -684,8 +708,8 @@ func hazard_hit() -> void:
 	take_damage(1)
 
 	# If the player survives the hit, respawn at the last safe position.
-	# If health reached zero, take_damage() already called dead().
-	if current_health > 0:
+	# If health reached zero, take_damage() already called dead() — don't also respawn.
+	if state != PlayerState.DEAD:
 		respawn()
 
 func respawn() -> void:
@@ -697,8 +721,16 @@ func respawn() -> void:
 	# Clear invulnerability so the player can be hit again if they fall back into the hazard
 	invulnerability_timer = 0.0
 
-	# Lock input for a moment so the player can reorient (Hollow Knight style)
-	respawn_lock_timer = respawn_lock_time
+	# Clear all buffered actions so carried-over inputs don't cause double-hits or unexpected dashes
+	jump_buffered = false
+	jump_buffer_timer = 0.0
+	wall_jump_buffered = false
+	wall_jump_buffer_timer = 0.0
+	dash_buffer_timer = 0.0
+	wavedash_buffer_timer = 0.0
+
+	# Lock input for 10 frames (~0.167s at 60fps) so player can't act immediately
+	respawn_lock_timer = 10.0 / 60.0  # 10 frames
 
 	# Brief slow-motion effect on respawn (like death, but less severe)
 	Engine.time_scale = 0.85
@@ -712,6 +744,7 @@ func dead() -> void:
 
 	state = PlayerState.DEAD
 	current_health = max_health
+	Global.death_count += 1
 	Engine.time_scale = 0.7
 	timer.start()
 

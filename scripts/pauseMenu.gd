@@ -36,6 +36,10 @@ func _on_panflute_pressed() -> void:
 
 func _on_restart_pressed() -> void:
 	resume()
+	# Player._ready() teleports to Global.last_checkpoint_position whenever
+	# has_checkpoint is true — clear it so a manual restart goes back to
+	# the scene's original spawn instead of the last checkpoint.
+	Global.has_checkpoint = false
 	get_tree().reload_current_scene()
 
 func _on_quit_pressed() -> void:

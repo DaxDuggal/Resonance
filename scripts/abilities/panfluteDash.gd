@@ -15,6 +15,26 @@ class_name PanfluteDash
 # Wall bounce window after a grapple hits a wall (longer than default to allow buffering)
 @export var wall_bounce_window_time: float = 0.3
 
+# How much of the grapple's vertical momentum carries into a jump-cancel.
+# Small on purpose — this should soften the transition, not replicate a wavedash.
+@export var vertical_momentum_carry: float = 0.2
+
+# Horizontal/diagonal momentum kept when jump-cancelling with no directional
+# input held. Without this, letting go of input before jumping out of a
+# horizontal or diagonal grapple dropped ALL horizontal speed instantly.
+@export var passive_momentum_carry: float = 0.4
+
+# Momentum boost when continuing OR reversing direction out of a horizontal/
+# diagonal grapple. Same magnitude both ways — reversing isn't a weaker,
+# consolation-prize option, it's just the same boost pointed the other way.
+@export var horizontal_momentum_carry: float = 0.85
+
+# Flat horizontal nudge when holding left/right out of a straight-up grapple.
+# A pure up-dash has ~zero horizontal velocity to carry, so there's nothing
+# to scale — this gives a small fixed kick in the held direction instead of
+# leaving the player to crawl out on air acceleration alone.
+@export var up_grapple_horizontal_nudge: float = 120.0
+
 
 var _pause_timer: float = 0.0
 var _moving: bool = false
@@ -142,12 +162,16 @@ func update_dash(player: Player, delta: float) -> void:
 		_moving = true
 		_speed_factor = 0.0
 
-		# Create tween for extreme speed ramp-up
+		# Create tween for extreme speed ramp-up.
+		# EASE_IN (not EASE_OUT) is what actually gives a slow start: EASE_OUT
+		# rises fast immediately and only levels off near the end, so the grapple
+		# was already near full speed within a couple frames. EASE_IN keeps
+		# _speed_factor low for most of the ramp, then climbs quickly at the end.
 		if _ramp_tween:
 			_ramp_tween.kill()
 		_ramp_tween = create_tween()
 		_ramp_tween.set_trans(Tween.TRANS_CUBIC)
-		_ramp_tween.set_ease(Tween.EASE_OUT)
+		_ramp_tween.set_ease(Tween.EASE_IN)
 		_ramp_tween.tween_property(self, "_speed_factor", 1.0, float(ramp_frames) / 60.0)
 
 		# Show max_range visualization
@@ -226,30 +250,45 @@ func interrupt_with_jump(player: Player) -> void:
 	# Get current input direction
 	var input_direction: float = Input.get_axis("move_left", "move_right")
 
-	# Handle horizontal momentum: allow reversal by holding opposite direction
+	# Handle horizontal momentum: continuing or reversing direction both get the
+	# same strong boost (reversing isn't a weaker fallback, just the same
+	# momentum pointed the other way); no input at all still keeps a passive
+	# carry so it's never an instant dead stop.
 	var target_vx: float = 0.0
 	if abs(dash_direction.x) > 0.1:
-		# Dash has horizontal component
-		if input_direction * dash_direction.x > 0.1:
-			# Input in same direction as dash: keep some momentum
-			target_vx = player.velocity.x * 0.7
-			target_vx = clamp(target_vx, -player.max_speed, player.max_speed)
-		elif input_direction < -0.1:
-			# Input backward: reverse momentum
-			target_vx = -player.velocity.x * 0.3
-			target_vx = clamp(target_vx, -player.max_speed, player.max_speed)
-		# else: no input -> target_vx stays 0 (straight jump)
-	else:
-		# Dash is purely vertical (up or down)
-		if input_direction != 0.0:
-			# Player has input: preserve momentum in that direction
-			target_vx = player.velocity.x * 0.5
-			target_vx = clamp(target_vx, -player.max_speed, player.max_speed)
+		# Dash has horizontal component. Compare input against the dash's own
+		# direction (not just input sign) so this works correctly whether the
+		# grapple went left or right.
+		var alignment: float = input_direction * dash_direction.x
+		if alignment > 0.1:
+			# Continuing in the dash's direction: strong momentum carry
+			target_vx = player.velocity.x * horizontal_momentum_carry
+		elif alignment < -0.1:
+			# Reversing: same boost magnitude, just flipped to the new direction
+			target_vx = -player.velocity.x * horizontal_momentum_carry
 		else:
-			# No input: preserve a tiny bit of momentum for feel
-			target_vx = player.velocity.x * 0.3
+			# No input: still carry a little passive momentum instead of a hard stop
+			target_vx = player.velocity.x * passive_momentum_carry
+	else:
+		# Dash is purely vertical (up or down) — there's ~no horizontal velocity
+		# to carry, so give a flat nudge in the held direction instead of
+		# scaling an already-near-zero velocity.x by something.
+		if input_direction != 0.0:
+			target_vx = input_direction * up_grapple_horizontal_nudge
+		else:
+			target_vx = player.velocity.x * passive_momentum_carry
+
+	target_vx = clamp(target_vx, -player.max_speed, player.max_speed)
+
+	# Blend a small amount of the grapple's vertical momentum into the jump so
+	# it doesn't feel like a sudden ejection — not as much as a wavedash carries,
+	# just enough that the jump feels continuous with the direction you were flying.
+	var target_vy: float = player.jump_velocity + player.velocity.y * vertical_momentum_carry
+	# Keep it within a reasonable band around the normal jump so it can't turn
+	# into either a downward plunge or an accidental super jump.
+	target_vy = clamp(target_vy, player.jump_velocity * 1.4, player.jump_velocity * 0.6)
 
 	# Apply jump and set horizontal velocity
 	player.velocity.x = target_vx
-	player.velocity.y = player.jump_velocity
+	player.velocity.y = target_vy
 	player.exit_dash_state()

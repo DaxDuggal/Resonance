@@ -69,4 +69,15 @@ func handle_slide_collision(player: Player, collision) -> void:
 		player.wall_bounce_window_timer = player.wall_bounce_window_time
 		player.wall_bounce_normal = normal
 
+	# Arm the wavedash window here, at the moment of collision, rather than
+	# relying on player.gd's generic post-landing check. finish_dash() below
+	# flips state to NORMAL immediately, so by the time that generic check
+	# runs, state != DASHING anymore and the window never gets armed — the
+	# same issue panflute already works around this same way. Only counts as
+	# a wavedash candidate if there's a horizontal component (matches the
+	# other wavedash-arming checks elsewhere).
+	var is_ground_hit: bool = normal.y < -0.5 and dash_direction.y > 0.1 and abs(dash_direction.x) > 0.1
+	if is_ground_hit:
+		player.wavedash_window_timer = player.wavedash_input_window
+
 	finish_dash(player)

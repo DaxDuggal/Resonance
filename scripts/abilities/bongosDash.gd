@@ -19,11 +19,77 @@ func _init() -> void:
 
 # Burst clamp settings for limiting bounce height
 @export var burst_duration: float = 0.04
-@export var clamp_upward_after_burst: float = 320.0
+@export var clamp_upward_after_burst: float = 370.0
 @export var clamp_downward_after_burst: float = 220.0
 
 # Prevent jump height cut during bounce
 @export var disable_jump_cut_time: float = 0.2
+
+# How long after a down dash hits the floor the player still has to press jump
+# for the big bounce, before the dash just gives up and ends normally.
+# Needed because the dash's own duration (from BasicDash) is too short (0.18s)
+# for a human to react to landing and press jump within it.
+@export var ground_bounce_grace_window: float = 0.15
+
+# -1 while not resting on the floor from a down dash. >= 0 while in the grace
+# window counting down after landing.
+var _ground_bounce_timer: float = -1.0
+
+# True if the dash is pointed mostly straight down (or straight up), not diagonal.
+func _is_vertical_dash() -> bool:
+	var dir := dash_direction.normalized()
+	return abs(dir.y) >= axis_threshold and abs(dir.x) <= (1.0 - axis_threshold)
+
+func _is_downward_dash() -> bool:
+	return _is_vertical_dash() and dash_direction.y > 0.0
+
+func start_dash(player: Player, dir: Vector2) -> void:
+	_ground_bounce_timer = -1.0
+	super.start_dash(player, dir)
+
+# While resting in the post-landing grace window, hold still instead of letting
+# BasicDash's update_dash keep forcing full dash speed into the floor every
+# frame (that's what caused the player to get stuck re-triggering the
+# anti-tunneling raycast in player.gd and never actually registering as grounded).
+func update_dash(player: Player, delta: float) -> void:
+	if _ground_bounce_timer >= 0.0:
+		player.velocity = Vector2.ZERO
+		_ground_bounce_timer -= delta
+		if _ground_bounce_timer <= 0.0:
+			finish_dash(player)
+		return
+	super.update_dash(player, delta)
+
+# Called when the dash collides with something (floor, wall, etc.), whether
+# from the normal move_and_slide collision list or the anti-tunneling raycast
+# pre-check in player.gd. For a down dash hitting the floor, stop and open the
+# grace window instead of letting the dash keep pinning itself into the floor.
+func handle_slide_collision(player: Player, collision) -> void:
+	if not _is_downward_dash() or _ground_bounce_timer >= 0.0:
+		return
+
+	var normal: Vector2 = Vector2.ZERO
+	if typeof(collision) == TYPE_DICTIONARY:
+		normal = collision.get("normal", Vector2.ZERO)
+	elif collision and collision.has_method("get_normal"):
+		normal = collision.get_normal()
+
+	# Only treat floor-like surfaces (normal pointing up) as a landing
+	if normal.y < -0.5:
+		_ground_bounce_timer = ground_bounce_grace_window
+		player.velocity = Vector2.ZERO
+
+# Down-dash → upward bounce. Fires the instant jump is pressed while the dash
+# is still active — whether that's mid-air, mid-landing-grace-window, or
+# already pressed against the floor. A pure vertical dash always skips the
+# wavedash gate in player.gd, so this works regardless of grounded state.
+# Clamped after a brief burst so the height is big but not unbounded.
+func _apply_ground_bounce(player: Player) -> void:
+	player.velocity.x = 0.0
+	player.velocity.y = -vertical_bounce_force_down_dash
+	player.jump_cut_disabled_timer = disable_jump_cut_time
+	player.velocity_clamp_timer = burst_duration
+	player.velocity_clamp_value = -clamp_upward_after_burst
 
 func interrupt_with_jump(player: Player) -> void:
 	# Cancel the dash and apply a bounce based on dash direction.
@@ -50,15 +116,12 @@ func interrupt_with_jump(player: Player) -> void:
 
 	# Vertical dash (mostly y) — bounces with brief clamping to limit distance
 	if absy >= axis_threshold and absx <= (1.0 - axis_threshold):
-		player.velocity.x = 0.0
 		if dir.y > 0.0:
-			# Down dash → strong upward burst, then clamp
-			player.velocity.y = -vertical_bounce_force_down_dash
-			player.jump_cut_disabled_timer = disable_jump_cut_time
-			player.velocity_clamp_timer = burst_duration
-			player.velocity_clamp_value = -clamp_upward_after_burst
+			# Down dash → strong upward burst, then clamp (same as the automatic floor bounce)
+			_apply_ground_bounce(player)
 		else:
 			# Up dash → weaker downward burst, then clamp
+			player.velocity.x = 0.0
 			player.velocity.y = vertical_bounce_force_up_dash
 			player.velocity_clamp_timer = burst_duration
 			player.velocity_clamp_value = clamp_downward_after_burst
