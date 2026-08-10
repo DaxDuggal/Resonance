@@ -2,16 +2,28 @@ extends DashAbility
 class_name ConchShellDash
 
 @export var dash_speed: float = 350.0
+# Matches BasicDash's dash_duration so a quick tap covers the same distance
+# as a normal dash. Holding past this extends the dash up to max_dash_duration.
+@export var min_dash_duration: float = 0.18
 @export var max_dash_duration: float = 0.3  # How long you can hold it
-@export var turn_speed: float = 7.0  # How quickly to turn toward input direction
+# Extra time allowed, on top of max_dash_duration, once the player has
+# actively redirected the dash — so turning doesn't just eat into an
+# already-short window. Kept small on purpose; this isn't meant to make
+# the dash meaningfully longer, just give turning room to matter.
+@export var turn_max_duration_bonus: float = 0.05
+@export var turn_speed: float = 10.0  # How quickly to turn toward input direction
 @export var dash_end_speed: float = 200.0  # Momentum preserved on release
 
 var timer: float = 0.0
+var has_turned: bool = false
+var initial_dash_direction: Vector2 = Vector2.RIGHT
 
 func start_dash(player: Player, dir: Vector2) -> void:
 	super.start_dash(player, dir)
 
 	timer = 0.0
+	has_turned = false
+	initial_dash_direction = dash_direction
 	dash_velocity = dash_direction * dash_speed
 
 	player.velocity = dash_velocity
@@ -33,12 +45,24 @@ func update_dash(player: Player, delta: float) -> void:
 	if input_dir.length() > 0.1:
 		dash_direction = dash_direction.lerp(input_dir, turn_speed * delta).normalized()
 
+		# Once the player has meaningfully redirected away from where the dash
+		# started (not just held the same direction), grant the small bonus
+		# window so the turn has time to actually matter.
+		if not has_turned and initial_dash_direction.dot(dash_direction) < 0.9:
+			has_turned = true
+
 	# Update velocity based on current dash direction
 	dash_velocity = dash_direction * dash_speed
 	player.velocity = dash_velocity
 
-	# End dash if button released or max duration reached
-	if not dash_held or timer >= max_dash_duration:
+	var effective_max_duration := max_dash_duration
+	if has_turned:
+		effective_max_duration += turn_max_duration_bonus
+
+	# Always dash for at least min_dash_duration, even on a quick tap, so the
+	# distance matches a normal dash. Holding past that extends the dash
+	# (with steering) up to effective_max_duration.
+	if timer >= min_dash_duration and (not dash_held or timer >= effective_max_duration):
 		finish_dash(player)
 
 func finish_dash(player: Player) -> void:

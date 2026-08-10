@@ -24,6 +24,8 @@ const REBINDABLE_ACTIONS := [
 	"jump",
 	"dash",
 	"attack",
+	"parry",
+	"special",
 	"move_left",
 	"move_right",
 	"move_up",

@@ -3,38 +3,45 @@ class_name PanfluteDash
 
 @export var dash_speed: float = 525.0
 @export var speed_multiplier: float = 0.85  # make it slightly slower
-@export var max_range: float = 150.0
+@export var max_range: float = 175.0
 @export var dash_end_speed: float = 180.0
 
 # Pause before moving (frames)
 @export var pause_frames: int = 3
 
-# Speed ramp-up after pause (frames) - gradually accelerate to full speed
+# Speed ramp-up after pause (frames) - gradually accelerate to full speed.
+# Only used by the tap (pull) path.
 @export var ramp_frames: int = 15
 
-# Wall bounce window after a grapple hits a wall (longer than default to allow buffering)
+# Wall bounce window after a PULL hits a wall (longer than default to allow
+# buffering). Not used for swing collisions — those just end the swing.
 @export var wall_bounce_window_time: float = 0.3
 
-# How much of the grapple's vertical momentum carries into a jump-cancel.
-# Small on purpose — this should soften the transition, not replicate a wavedash.
-@export var vertical_momentum_carry: float = 0.2
-
-# Horizontal/diagonal momentum kept when jump-cancelling with no directional
-# input held. Without this, letting go of input before jumping out of a
-# horizontal or diagonal grapple dropped ALL horizontal speed instantly.
-@export var passive_momentum_carry: float = 0.4
-
-# Momentum boost when continuing OR reversing direction out of a horizontal/
-# diagonal grapple. Same magnitude both ways — reversing isn't a weaker,
-# consolation-prize option, it's just the same boost pointed the other way.
-@export var horizontal_momentum_carry: float = 0.85
-
-# Flat horizontal nudge when holding left/right out of a straight-up grapple.
-# A pure up-dash has ~zero horizontal velocity to carry, so there's nothing
-# to scale — this gives a small fixed kick in the held direction instead of
-# leaving the player to crawl out on air acceleration alone.
-@export var up_grapple_horizontal_nudge: float = 120.0
-
+@export_group("Swing")
+# Plain, symmetric pendulum physics — gravity is the sole restoring force
+# (stronger the further you are from hanging straight down, zero right at
+# the bottom, naturally reversing you at the top of each arc on its own).
+# Multiplies player.gravity, which is tuned for normal falling and is far
+# too strong once divided by a rope length of only ~100-175px, so keep this
+# well under 1.0. Tune by feel.
+@export var swing_gravity_scale: float = 0.75
+# Small constant push while holding a direction — just an influence on top
+# of gravity, the same way a person pumps their legs on a real swing, not a
+# mechanic with its own rules.
+@export var swing_pump_strength: float = 1.0
+# Hard cap on angular speed, mostly as a safety net against pump input
+# stacking with a fast fall indefinitely.
+@export var swing_max_angular_velocity: float = 3.0
+# How long dash must still be held, after the pull already started, before
+# it converts into a swing. Released before this and it stays a normal tap
+# pull — keep this comfortably above a quick tap's natural press duration.
+@export var swing_hold_threshold: float = 0.15
+# Multiplies velocity at the moment of a deliberate release (letting go of
+# dash mid-swing) so flinging off actually feels like it. Swing speed is
+# kept fairly low while attached (see swing_max_angular_velocity) so it
+# stays controllable — this is where the payoff for timing the release
+# well comes from. Doesn't apply if the swing ends by hitting something.
+@export var swing_release_boost: float = 1.3
 
 var _pause_timer: float = 0.0
 var _moving: bool = false
@@ -44,13 +51,29 @@ var _pre_pause_velocity: Vector2 = Vector2.ZERO
 var _abort_after_pause: bool = false
 var _skip_consume: bool = false
 
-func _init() -> void:
-	allows_jump_interrupt = true
+# The point found by the raycast in start_dash — used as either the PULL
+# target or the SWING anchor, decided once the wind-up pause ends based on
+# whether dash is still held (see update_dash).
+var _anchor_point: Vector2 = Vector2.ZERO
+
+var _hold_check_timer: float = 0.0
+var _hold_decided: bool = false
+
+var _swinging: bool = false
+var _rope_length: float = 0.0
+var _swing_angle: float = 0.0  # 0 = hanging straight down from the anchor
+var _swing_angular_velocity: float = 0.0
+
+const MIN_ROPE_LENGTH: float = 8.0  # Avoids a near-zero rope causing huge angular acceleration
+
 
 func start_dash(player: Player, dir: Vector2) -> void:
 	# Reset per-dash flags so a previous aborted grapple can't leak state
 	_abort_after_pause = false
 	_skip_consume = false
+	_swinging = false
+	_hold_decided = false
+	_hold_check_timer = swing_hold_threshold
 
 	# Track whether the raycast found a valid target for grappling
 	var found_hit: bool = false
@@ -101,6 +124,8 @@ func start_dash(player: Player, dir: Vector2) -> void:
 			target = hit.get("position")
 			found_hit = true
 
+	_anchor_point = target
+
 	# If no hit was found, still do the pre-dash pause to allow animation, but don't move
 	if not found_hit:
 		# Activate ability so update_dash is called for the pause
@@ -111,16 +136,14 @@ func start_dash(player: Player, dir: Vector2) -> void:
 		_moving = false
 		_pre_pause_velocity = player.velocity
 		player.dash_available = false
-		# Show debug to indicate attempted grapple
-		if player.has_method("show_dash_debug"):
-			player.show_dash_debug(target)
 		return
 
 
 	# Commit to dash now that checks passed
 	super.start_dash(player, dir)
 
-	# Apply speed multiplier and set dash velocity
+	# Apply speed multiplier and set dash velocity (used if this ends up
+	# being a tap/PULL rather than a hold/SWING — see update_dash)
 	var effective_speed: float = dash_speed * speed_multiplier
 	dash_velocity = dash_direction.normalized() * effective_speed
 
@@ -139,6 +162,13 @@ func start_dash(player: Player, dir: Vector2) -> void:
 
 
 func update_dash(player: Player, delta: float) -> void:
+	# Redraw every frame so the line always points at the real anchor from
+	# the player's current position — it shrinks while pulling in and pivots
+	# correctly while swinging, instead of just translating with the player
+	# like a fixed offset (which is what happens if this is only set once).
+	if player.has_method("show_dash_debug"):
+		player.show_dash_debug(_anchor_point)
+
 	# If we're in the pre-dash pause, keep player paused in the air
 	if _pause_timer > 0.0:
 		# smoothly slide velocity toward zero over the pause duration
@@ -162,6 +192,13 @@ func update_dash(player: Player, delta: float) -> void:
 		_moving = true
 		_speed_factor = 0.0
 
+		# Always start the pull immediately, exactly like a tap — this is
+		# what keeps a genuine tap feeling identical to before. Whether this
+		# turns into a swing is decided separately below, by whether dash is
+		# STILL held a bit later; converting mid-pull (see _start_swing,
+		# which reads whatever velocity the player currently has) feels like
+		# the rope catching rather than an abrupt freeze-and-decide.
+		#
 		# Create tween for extreme speed ramp-up.
 		# EASE_IN (not EASE_OUT) is what actually gives a slow start: EASE_OUT
 		# rises fast immediately and only levels off near the end, so the grapple
@@ -174,13 +211,84 @@ func update_dash(player: Player, delta: float) -> void:
 		_ramp_tween.set_ease(Tween.EASE_IN)
 		_ramp_tween.tween_property(self, "_speed_factor", 1.0, float(ramp_frames) / 60.0)
 
-		# Show max_range visualization
-		var max_range_endpoint = player.global_position + dash_direction.normalized() * max_range
-		if player.has_method("show_dash_debug"):
-			player.show_dash_debug(max_range_endpoint)
+	# Tap vs hold, decided after the pull has already started: release before
+	# swing_hold_threshold and it just stays a normal pull (matches the old
+	# behavior exactly). Still holding once the threshold passes converts it
+	# into a swing.
+	if not _swinging and not _hold_decided:
+		if not Input.is_action_pressed("dash"):
+			_hold_decided = true
+		else:
+			_hold_check_timer -= delta
+			if _hold_check_timer <= 0.0:
+				_hold_decided = true
+				_start_swing(player)
 
-	# Maintain dash velocity (collision detection stops dash)
+	if _swinging:
+		_update_swing(player, delta)
+		return
+
+	# PULL: maintain dash velocity (collision detection stops it)
 	player.velocity = dash_velocity * _speed_factor
+
+
+func _start_swing(player: Player) -> void:
+	_swinging = true
+
+	# May be converting mid-pull (see update_dash) — stop the pull's speed
+	# ramp so it can't leak into anything after the swing takes over.
+	if _ramp_tween:
+		_ramp_tween.kill()
+
+	_rope_length = maxf(player.global_position.distance_to(_anchor_point), MIN_ROPE_LENGTH)
+
+	var offset: Vector2 = player.global_position - _anchor_point
+	_swing_angle = atan2(offset.x, offset.y)
+
+	# Carry whatever velocity the player already had into the swing as
+	# angular velocity, so attaching doesn't feel like hitting a wall —
+	# only the component of velocity tangent to the rope actually converts;
+	# the rest (pulling toward/away from the anchor) is lost, same as a real
+	# rope going taut.
+	var tangent: Vector2 = Vector2(cos(_swing_angle), -sin(_swing_angle))
+	_swing_angular_velocity = player.velocity.dot(tangent) / _rope_length
+
+
+func _update_swing(player: Player, delta: float) -> void:
+	# Plain pendulum physics: gravity's restoring torque is strongest out at
+	# the sides and zero at the bottom, which on its own already produces a
+	# slow top, a fast bottom, and a natural reversal at each peak — no
+	# special-casing needed, that's just what the sine term does.
+	var effective_gravity: float = player.gravity * swing_gravity_scale
+	var angular_acceleration: float = -(effective_gravity / _rope_length) * sin(_swing_angle)
+
+	# Input is just a small constant push in whichever direction is held,
+	# the same as a person pumping their legs — it can add to or work
+	# against gravity, nothing more.
+	var input_x: float = Input.get_axis("move_left", "move_right")
+	angular_acceleration += input_x * swing_pump_strength
+
+	_swing_angular_velocity += angular_acceleration * delta
+	_swing_angular_velocity = clamp(_swing_angular_velocity, -swing_max_angular_velocity, swing_max_angular_velocity)
+	_swing_angle += _swing_angular_velocity * delta
+
+	var offset: Vector2 = Vector2(sin(_swing_angle), cos(_swing_angle)) * _rope_length
+	var target_position: Vector2 = _anchor_point + offset
+
+	# Drive movement through velocity (not a direct position set) so the
+	# normal move_and_slide/collision pipeline still applies — swinging into
+	# a wall or spike correctly stops the swing via handle_slide_collision
+	# below instead of clipping through it.
+	player.velocity = (target_position - player.global_position) / delta
+
+	# Release: letting go of dash detaches with a boosted version of whatever
+	# velocity the swing currently has — timing the release is the whole
+	# point, same as a real grapple-swing, and the boost is what makes that
+	# timing actually pay off instead of just matching the swing's own speed.
+	if not Input.is_action_pressed("dash"):
+		player.velocity *= swing_release_boost
+		cancel_dash(player)
+
 
 func finish_dash(player: Player) -> void:
 	is_active = false
@@ -203,6 +311,7 @@ func finish_dash(player: Player) -> void:
 
 func cancel_dash(player: Player) -> void:
 	is_active = false
+	_swinging = false
 	player.exit_dash_state()
 	dash_finished.emit()
 	# Clear debug drawing
@@ -211,8 +320,15 @@ func cancel_dash(player: Player) -> void:
 
 
 # Called from Player after move_and_slide when a slide collision occurred.
-# For grapple dash, immediately finish the dash using the collision normal so recoil is accurate.
 func handle_slide_collision(player: Player, collision) -> void:
+	# Swinging into something just ends the swing where it is — dash_direction
+	# is stale (it's whatever direction the initial cast aimed, not the
+	# swing's current direction of travel), so none of the PULL-specific
+	# wavedash/wall-bounce arming below applies here.
+	if _swinging:
+		cancel_dash(player)
+		return
+
 	# Accept either a slide-collision object with get_normal() or a Dictionary from intersect_ray
 	var normal: Vector2 = Vector2.ZERO
 	if typeof(collision) == TYPE_DICTIONARY:
@@ -239,56 +355,3 @@ func handle_slide_collision(player: Player, collision) -> void:
 		player.wall_bounce_normal = normal
 
 	finish_dash(player)
-
-# Allow jump to interrupt this dash (player.gd will call this when appropriate)
-func interrupt_with_jump(player: Player) -> void:
-	cancel_dash(player)
-
-	# Don't restore dash on interrupt - only restore when landing
-	player.dash_available = false
-
-	# Get current input direction
-	var input_direction: float = Input.get_axis("move_left", "move_right")
-
-	# Handle horizontal momentum: continuing or reversing direction both get the
-	# same strong boost (reversing isn't a weaker fallback, just the same
-	# momentum pointed the other way); no input at all still keeps a passive
-	# carry so it's never an instant dead stop.
-	var target_vx: float = 0.0
-	if abs(dash_direction.x) > 0.1:
-		# Dash has horizontal component. Compare input against the dash's own
-		# direction (not just input sign) so this works correctly whether the
-		# grapple went left or right.
-		var alignment: float = input_direction * dash_direction.x
-		if alignment > 0.1:
-			# Continuing in the dash's direction: strong momentum carry
-			target_vx = player.velocity.x * horizontal_momentum_carry
-		elif alignment < -0.1:
-			# Reversing: same boost magnitude, just flipped to the new direction
-			target_vx = -player.velocity.x * horizontal_momentum_carry
-		else:
-			# No input: still carry a little passive momentum instead of a hard stop
-			target_vx = player.velocity.x * passive_momentum_carry
-	else:
-		# Dash is purely vertical (up or down) — there's ~no horizontal velocity
-		# to carry, so give a flat nudge in the held direction instead of
-		# scaling an already-near-zero velocity.x by something.
-		if input_direction != 0.0:
-			target_vx = input_direction * up_grapple_horizontal_nudge
-		else:
-			target_vx = player.velocity.x * passive_momentum_carry
-
-	target_vx = clamp(target_vx, -player.max_speed, player.max_speed)
-
-	# Blend a small amount of the grapple's vertical momentum into the jump so
-	# it doesn't feel like a sudden ejection — not as much as a wavedash carries,
-	# just enough that the jump feels continuous with the direction you were flying.
-	var target_vy: float = player.jump_velocity + player.velocity.y * vertical_momentum_carry
-	# Keep it within a reasonable band around the normal jump so it can't turn
-	# into either a downward plunge or an accidental super jump.
-	target_vy = clamp(target_vy, player.jump_velocity * 1.4, player.jump_velocity * 0.6)
-
-	# Apply jump and set horizontal velocity
-	player.velocity.x = target_vx
-	player.velocity.y = target_vy
-	player.exit_dash_state()

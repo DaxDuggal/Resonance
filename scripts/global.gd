@@ -20,6 +20,12 @@ var last_checkpoint_scene: String = "res://scenes/game.tscn"
 # -1 means "no load in progress, use default max health."
 var saved_current_health: int = -1
 
+# One-time flag consumed by Player._ready(), set by dead() right before the
+# scene reloads. Lets _ready() tell "this reload is because I just died"
+# apart from a cold boot / manual Restart / loading a save — only the death
+# case should grant the post-respawn invulnerability + movement lock.
+var did_just_die: bool = false
+
 # ---------- Save-file progress (not yet implemented, placeholders) ----------
 var currency: int = 0
 var xp: int = 0

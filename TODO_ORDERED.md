@@ -91,29 +91,29 @@ Organized by dependencies and complexity (simplest first).
 **Why now:** Core to the game's rhythm/feedback loop.
 
 **Code changes:**
-- [ ] Add `parry_state` to Player.PlayerState enum
-- [ ] Add parry cooldown + window duration
-- [ ] Add parry audio/visual feedback
+- [x] Add `PARRYING` to Player.PlayerState enum
+- [x] Add parry cooldown + window duration
+- [x] Add parry visual feedback (placeholder color tint/flash — no real art yet; audio not wired, no SFX assets/playback system exists yet)
 
 **Implementation:**
-- [ ] Input: detect "parry" action
-- [ ] Parry window: brief active window (0.2s suggested)
-- [ ] On parry:
-  - [ ] Check if enemy attack lands during window
-  - [ ] If yes: success feedback + player heals small amount + meter builds
-  - [ ] If no: miss feedback + damage taken
-- [ ] Add parry animation + visual effect
+- [x] Input: detect "parry" action (right-click / joypad button 1, rebindable via Preferences)
+- [x] Parry window: 0.2s (`parry_window_duration`, tunable)
+- [x] On parry — resolved in `take_enemy_damage()`, the existing entry point for enemy hits:
+  - [x] Check if enemy attack lands during window (`is_parrying` check — ready for a hitbox to call once enemies exist)
+  - [x] If yes: success feedback (color flash) + player heals in fractional increments (~0.25/parry via accumulator) — meter build deferred, no Meter/Special System yet (#8)
+  - [x] If no: falls through to existing miss/damage flow (`take_damage()`)
+- [ ] Add parry animation + visual effect — placeholder color only; real animation intentionally deferred
 
 ### 8. Meter/Special System
 **Why now:** Needed for player feedback and combat pacing.
 
 - [ ] Meter display in UI
-- [ ] Meter builds on: parry hits + on-beat hits
-- [ ] Meter consumes on: special attack
-- [ ] Special attack:
-  - [ ] Larger damage/knockback
-  - [ ] Different animation
-  - [ ] Drains meter
+- [x] Meter builds on: parry hits (`_on_parry_success()`, +1, capped at `max_meter` = 3) — on-beat hits still pending, no rhythm/beat system yet
+- [x] Meter consumes on: special attack (drains fully to 0)
+- [ ] Special attack (new `SPECIAL` state, gated by `current_meter == max_meter`):
+  - [x] Larger damage value (`special_damage` = 3 vs. normal attack's 1) — knockback not implemented, no enemies to knock back yet
+  - [ ] Different animation — deferred, no assets
+  - [x] Drains meter
 
 ---
 

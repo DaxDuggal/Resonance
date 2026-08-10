@@ -8,7 +8,10 @@ enum PlayerState {
 	WALL_BOUNCING,
 	WALL_CLINGING,
 	HURT,
-	DEAD
+	DEAD,
+	ATTACKING,
+	PARRYING,
+	SPECIAL
 }
 
 enum DashType {
@@ -67,6 +70,15 @@ func _ready() -> void:
 	current_dash = Global.current_dash_type as DashType
 	set_dash_ability(current_dash)
 
+	# Same brief invulnerability + full movement/input lock as a hazard
+	# respawn (see respawn()), but only when this reload is actually from
+	# dying — not a cold boot, a manual Restart, or loading a save, none of
+	# which should freeze the player for no reason.
+	if Global.did_just_die:
+		invulnerability_timer = invulnerability_duration
+		respawn_lock_timer = respawn_lock_time
+		Global.did_just_die = false
+
 	# Add hurtbox to player_hitbox group so respawn zones can detect it
 	if has_node("Hurtbox"):
 		$Hurtbox.add_to_group("player_hitbox")
@@ -113,6 +125,62 @@ var current_health := 3
 var invulnerability_timer := 0.0
 @export var invulnerability_duration := 1.0
 
+# ========== ATTACK ==========
+# Scaffolding only for now — no animation, hitbox, or enemies wired in yet.
+# attack_damage is unused until there's a hitbox to read it.
+
+@export_group("Attack")
+@export var attack_damage := 1
+@export var attack_duration := 0.25  # How long ATTACKING lasts before returning to NORMAL
+@export var attack_cooldown := 0.4  # Minimum time between attack starts
+
+var attack_state_timer := 0.0
+var attack_cooldown_timer := 0.0
+# True whenever an attack window is open, independent of `state` — lets an
+# attack run alongside a dash (Hollow Knight dash-slash style) instead of
+# interrupting it. A future hitbox should check this rather than `state`.
+var is_attacking := false
+
+# ========== PARRY ==========
+# Scaffolding only — no animation/hurtbox/enemies wired in yet. The actual
+# success/miss branching lives in take_enemy_damage() below: whatever calls
+# that function once enemies exist (a hitbox landing a hit) automatically
+# resolves as a parry if is_parrying is true, or normal damage otherwise.
+# Visual feedback is a placeholder color tint/flash until real art exists.
+
+@export_group("Parry")
+@export var parry_window_duration := 0.2  # How long PARRYING lasts / the active parry window
+@export var parry_cooldown := 0.5  # Minimum time between parry attempts
+@export var parry_heal_amount := 0.25  # Fractional — accumulates via _parry_heal_accumulator since current_health is an int
+
+var parry_state_timer := 0.0
+var parry_cooldown_timer := 0.0
+var is_parrying := false
+var _parry_heal_accumulator := 0.0
+
+var parry_flash_timer := 0.0
+const PARRY_FLASH_DURATION := 0.15  # Brief flash on a successful parry, separate from the window-long tint
+
+# ========== METER ==========
+# Builds from successful parries (see _on_parry_success()). Spent entirely
+# by a special attack once full — see SPECIAL below.
+
+@export_group("Meter")
+@export var max_meter := 3
+var current_meter := 0
+
+# ========== SPECIAL ==========
+# Scaffolding only — no animation/hitbox/enemies wired in yet. Gated purely
+# by the meter being full; no separate cooldown since the meter itself is
+# what limits how often this can happen.
+
+@export_group("Special")
+@export var special_damage := 3  # Larger than a normal attack; tune once there's something to hit
+@export var special_duration := 0.4  # How long SPECIAL lasts before returning to NORMAL
+
+var special_state_timer := 0.0
+var is_special := false
+
 # ========== MOVEMENT ==========
 
 @export_group("Movement")
@@ -145,7 +213,7 @@ const WALL_BOUNCE_JUMP_CUT_DISABLE_TIME := 0.2
 # ========== COYOTE / BUFFER ==========
 
 @export_group("Coyote / Buffer")
-@export var coyote_time := 0.15
+@export var coyote_time := 0.05
 @export var jump_buffer_time := 0.1
 @export var dash_buffer_time := 0.1
 
@@ -221,8 +289,11 @@ var hazard_overlap_count := 0
 var velocity_clamp_timer := 0.0
 var velocity_clamp_value := 0.0
 
-# Lock input for a moment after respawning (Hollow Knight style)
-@export var respawn_lock_time := 0.2
+# Lock input for a moment after respawning (Hollow Knight style). Also
+# drives invulnerability_timer on respawn (see respawn() and _ready()) —
+# both are frozen for this long so the player can't drift/fall into
+# whatever just hit them while they can't be re-hit.
+@export var respawn_lock_time := 0.4
 var respawn_lock_timer := 0.0
 
 
@@ -239,14 +310,22 @@ func _physics_process(delta: float) -> void:
 	var jump_pressed := Input.is_action_just_pressed("jump")
 	var jump_released := Input.is_action_just_released("jump")
 	var dash_pressed := Input.is_action_just_pressed("dash")
+	var attack_pressed := Input.is_action_just_pressed("attack")
+	var parry_pressed := Input.is_action_just_pressed("parry")
+	var special_pressed := Input.is_action_just_pressed("special")
 
 	var grounded := is_on_floor()
 
-	# Prevent input while dead
-	if state == PlayerState.DEAD:
+	# Prevent input while dead or during the brief respawn lock (movement is
+	# separately frozen too — see respawn_lock_timer checks in
+	# _handle_normal_movement and _handle_gravity)
+	if state == PlayerState.DEAD or respawn_lock_timer > 0.0:
 		dash_pressed = false
 		jump_pressed = false
 		jump_released = false
+		attack_pressed = false
+		parry_pressed = false
+		special_pressed = false
 		input_x = 0.0
 		input_y = 0.0
 
@@ -254,6 +333,9 @@ func _physics_process(delta: float) -> void:
 	var jump_consumed = _handle_invulnerability(delta)
 	_handle_input_buffers(jump_pressed, dash_pressed, grounded)
 	_handle_dash_start(input_x, input_y)
+	_handle_attack_start(attack_pressed)
+	_handle_parry_start(parry_pressed)
+	_handle_special_start(special_pressed)
 	_handle_checkpoint(grounded)
 
 	jump_consumed = _handle_dash_state(delta, input_x, input_y, jump_pressed, grounded, jump_consumed)
@@ -306,12 +388,30 @@ func _handle_input_buffers(jump_pressed: bool, dash_pressed: bool, grounded: boo
 			wall_jump_buffer_timer = wall_jump_buffer_time
 
 
+# Snaps a direction to the nearest of 8 compass directions. Keyboard input
+# is already 8-directional by construction (two binary keys per axis only
+# ever produce -1/0/1), so this is a no-op there — it only actually changes
+# anything for analog stick input, which can land at any angle.
+func _snap_to_8_directions(dir: Vector2) -> Vector2:
+	if dir == Vector2.ZERO:
+		return dir
+	var step: float = TAU / 8.0
+	var snapped_angle: float = round(dir.angle() / step) * step
+	return Vector2(cos(snapped_angle), sin(snapped_angle))
+
+
 func _handle_dash_start(input_x: float, input_y: float) -> void:
 	if dash_buffer_timer > 0.0 and dash_available and state != PlayerState.DASHING and state != PlayerState.HURT:
 		var dash_dir := Vector2(input_x, input_y)
 
 		if dash_dir == Vector2.ZERO:
 			dash_dir = Vector2(facing_direction, 0)
+		else:
+			# Only the dash's starting direction is locked to 8 directions.
+			# Abilities that steer mid-dash (e.g. ConchShellDash) read raw
+			# input directly in their own update_dash(), so steering stays
+			# full 360.
+			dash_dir = _snap_to_8_directions(dash_dir)
 
 		if dash_dir.x != 0.0:
 			facing_direction = int(sign(dash_dir.x))
@@ -319,6 +419,69 @@ func _handle_dash_start(input_x: float, input_y: float) -> void:
 		if dash_ability.can_start(self):
 			dash_ability.start_dash(self, dash_dir)
 			dash_buffer_timer = 0.0
+
+
+# No animation/hitbox yet — this just opens the attack window and runs the
+# cooldown so the flow is testable end-to-end.
+#
+# Attacking while dashing (Hollow Knight dash-slash) deliberately does NOT
+# touch `state` — the dash's own update_dash()/collision handling depends on
+# state staying DASHING every frame, so overwriting it with ATTACKING would
+# silently break the dash (gravity would kick back in, the anti-tunneling
+# raycast pre-check would stop running, etc). A standalone attack (not mid-
+# dash) still gets its own ATTACKING state so it can be restricted later if
+# you ever want attacks to root the player in place.
+func _handle_attack_start(attack_pressed: bool) -> void:
+	if not attack_pressed or attack_cooldown_timer > 0.0 or is_attacking:
+		return
+
+	if state == PlayerState.HURT or state == PlayerState.DEAD:
+		return
+
+	is_attacking = true
+	attack_state_timer = attack_duration
+	attack_cooldown_timer = attack_cooldown
+
+	if state != PlayerState.DASHING:
+		state = PlayerState.ATTACKING
+
+
+# No animation/hurtbox/enemies yet — this opens the parry window and runs
+# the cooldown. Unlike attack, parry doesn't run alongside a dash/attack —
+# it's blocked in those states rather than layered on top, since a parry is
+# meant to be a deliberate stance, not something you fish for mid-action.
+# Doesn't lock movement (same default as attack) so you can still walk/jump
+# out of it; tighten that later if parry should root the player in place.
+func _handle_parry_start(parry_pressed: bool) -> void:
+	if not parry_pressed or parry_cooldown_timer > 0.0 or is_parrying:
+		return
+
+	if state == PlayerState.HURT or state == PlayerState.DEAD or state == PlayerState.DASHING or state == PlayerState.ATTACKING:
+		return
+
+	is_parrying = true
+	state = PlayerState.PARRYING
+	parry_state_timer = parry_window_duration
+	parry_cooldown_timer = parry_cooldown
+
+
+# No animation/hitbox/enemies yet. Gated purely by the meter being full —
+# spends the entire meter on use, same as attack/parry this doesn't lock
+# movement.
+func _handle_special_start(special_pressed: bool) -> void:
+	if not special_pressed or is_special:
+		return
+
+	if current_meter < max_meter:
+		return
+
+	if state == PlayerState.HURT or state == PlayerState.DEAD or state == PlayerState.DASHING or state == PlayerState.ATTACKING or state == PlayerState.PARRYING:
+		return
+
+	current_meter = 0
+	is_special = true
+	state = PlayerState.SPECIAL
+	special_state_timer = special_duration
 
 
 func _handle_checkpoint(grounded: bool) -> void:
@@ -471,7 +634,11 @@ func _handle_velocity_clamp(delta: float) -> void:
 
 
 func _handle_gravity(input_x: float, input_y: float, grounded: bool, delta: float) -> void:
-	if grounded or state == PlayerState.DASHING:
+	# Frozen during the respawn lock too, not just grounded/dashing — this is
+	# what actually makes respawn invulnerability safe (see respawn()): the
+	# player can't drift/fall into the same hazard while unhittable, since
+	# they aren't moving at all.
+	if grounded or state == PlayerState.DASHING or respawn_lock_timer > 0.0:
 		return
 
 	var gravity_mult := 1.0
@@ -562,6 +729,36 @@ func _update_timers(delta: float) -> void:
 	if respawn_lock_timer > 0.0:
 		respawn_lock_timer = tick_timer(respawn_lock_timer, delta)
 
+	if attack_state_timer > 0.0:
+		attack_state_timer = tick_timer(attack_state_timer, delta)
+		if attack_state_timer <= 0.0:
+			is_attacking = false
+			# Only clear state if we're still in the standalone ATTACKING
+			# state. If a dash started (or something else changed state)
+			# while attacking, leave it alone — this only ever cleans up
+			# after itself.
+			if state == PlayerState.ATTACKING:
+				state = PlayerState.NORMAL
+
+	attack_cooldown_timer = tick_timer(attack_cooldown_timer, delta)
+
+	if parry_state_timer > 0.0:
+		parry_state_timer = tick_timer(parry_state_timer, delta)
+		if parry_state_timer <= 0.0:
+			is_parrying = false
+			if state == PlayerState.PARRYING:
+				state = PlayerState.NORMAL
+
+	parry_cooldown_timer = tick_timer(parry_cooldown_timer, delta)
+	parry_flash_timer = tick_timer(parry_flash_timer, delta)
+
+	if special_state_timer > 0.0:
+		special_state_timer = tick_timer(special_state_timer, delta)
+		if special_state_timer <= 0.0:
+			is_special = false
+			if state == PlayerState.SPECIAL:
+				state = PlayerState.NORMAL
+
 
 func _apply_movement(delta: float) -> void:
 	# Early exit for dash collision check
@@ -618,9 +815,16 @@ func _apply_movement(delta: float) -> void:
 		wavedash_window_timer = wavedash_input_window
 
 	# Update sprite color
+	# Placeholder feedback until real animations/VFX exist — parry_flash_timer
+	# (a brief flash on a successful parry) takes priority over the
+	# window-long PARRYING tint, which takes priority over the rest.
 	var target_modulate := Color.RED
-	if state == PlayerState.DASHING:
+	if parry_flash_timer > 0.0:
+		target_modulate = Color.GREEN
+	elif state == PlayerState.DASHING:
 		target_modulate = Color.CYAN
+	elif state == PlayerState.PARRYING:
+		target_modulate = Color(1.0, 0.85, 0.2)  # gold
 	elif dash_available:
 		target_modulate = Color.WHITE
 
@@ -691,7 +895,30 @@ func take_enemy_damage(amount: int = 1) -> void:
 	# Used when you add enemies to the game.
 	if invulnerability_timer > 0.0:
 		return
+
+	# This is the intended integration point for a future enemy hitbox: call
+	# take_enemy_damage() when a hit lands, and it resolves parry success vs.
+	# a normal hit automatically based on whether the player is mid-window.
+	if is_parrying:
+		_on_parry_success()
+		return
+
 	take_damage(amount)
+
+func _on_parry_success() -> void:
+	# Heals in fractional increments since current_health is an int but the
+	# design calls for partial-heart regen (~0.25/parry). Once the
+	# accumulator crosses a full point, convert it into real healing.
+	_parry_heal_accumulator += parry_heal_amount
+	while _parry_heal_accumulator >= 1.0 and current_health < max_health:
+		_parry_heal_accumulator -= 1.0
+		current_health += 1
+
+	parry_flash_timer = PARRY_FLASH_DURATION
+
+	current_meter = mini(current_meter + 1, max_meter)
+
+	# TODO: play parry-success SFX/animation once those assets exist.
 
 func _on_hitbox_body_entered(_body: Node2D) -> void:
 	hazard_hit()
@@ -718,8 +945,15 @@ func respawn() -> void:
 	velocity = Vector2.ZERO
 	state = PlayerState.NORMAL
 
-	# Clear invulnerability so the player can be hit again if they fall back into the hazard
-	invulnerability_timer = 0.0
+	# Grant the same invulnerability + full movement/input lock as a death
+	# respawn. This used to be cleared to 0 here because a lingering invuln
+	# let the player fall straight through a hazard they respawned inside
+	# (invuln blocked hazard_hit(), but nothing stopped them drifting/falling
+	# the whole time it was active). Now that respawn_lock_timer also freezes
+	# gravity and all input (see _handle_gravity and the top of
+	# _physics_process), the player can't go anywhere during the window, so
+	# real invulnerability is safe again.
+	invulnerability_timer = invulnerability_duration
 
 	# Clear all buffered actions so carried-over inputs don't cause double-hits or unexpected dashes
 	jump_buffered = false
@@ -729,8 +963,8 @@ func respawn() -> void:
 	dash_buffer_timer = 0.0
 	wavedash_buffer_timer = 0.0
 
-	# Lock input for 10 frames (~0.167s at 60fps) so player can't act immediately
-	respawn_lock_timer = 10.0 / 60.0  # 10 frames
+	# Lock input/movement for respawn_lock_time so the player can't act immediately
+	respawn_lock_timer = respawn_lock_time
 
 	# Brief slow-motion effect on respawn (like death, but less severe)
 	Engine.time_scale = 0.85
@@ -745,6 +979,7 @@ func dead() -> void:
 	state = PlayerState.DEAD
 	current_health = max_health
 	Global.death_count += 1
+	Global.did_just_die = true
 	Engine.time_scale = 0.7
 	timer.start()
 
