@@ -3,7 +3,7 @@ class_name PanfluteDash
 
 @export var dash_speed: float = 525.0
 @export var speed_multiplier: float = 0.85  # make it slightly slower
-@export var max_range: float = 175.0
+@export var max_range: float = 150.0
 @export var dash_end_speed: float = 180.0
 
 # Pause before moving (frames)
@@ -234,6 +234,13 @@ func update_dash(player: Player, delta: float) -> void:
 
 func _start_swing(player: Player) -> void:
 	_swinging = true
+
+	# Swinging recharges the dash. It can't actually be used again until
+	# state leaves DASHING (dash input is blocked mid-dash — see
+	# _handle_dash_start in player.gd), so in practice this means whichever
+	# way the swing ends — a clean release or hitting something — the
+	# player comes out of it with a fresh dash ready to go.
+	player.dash_available = true
 
 	# May be converting mid-pull (see update_dash) — stop the pull's speed
 	# ramp so it can't leak into anything after the swing takes over.
