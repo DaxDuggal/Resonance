@@ -12,7 +12,6 @@ Organized by dependencies and complexity (simplest first).
 - [x] Implement save file structure (ConfigFile, multi-slot)
 - [x] Save player health on checkpoint
 - [ ] Save current level/area/progress
-- [ ] Save current dash type unlocked
 - [ ] Load on startup (read last checkpoint)
 - [ ] Handle save file versioning for future updates
 
@@ -41,24 +40,20 @@ Organized by dependencies and complexity (simplest first).
 
 ## Phase 2: Player Movement & Dash Polish
 
-### 4. Dash Improvements
+### 4. Dash Polish
+**Single 8-directional dash, no cooldown, no wavedash, no dash-cancel wall bounce.**
+Refills on ground touch and the instant wall contact begins. Instruments
+change attacks only, not dash behavior — see Phase 3 for the attack system
+that will eventually give instruments something to do.
 
-#### Panflute Wall Jump
-- [ ] Add wall jump capability to panflute (currently blocked by upward dash logic)
-- [ ] Test: grapple up to wall, wall jump away
-
-#### Basic Dash
-- [ ] Polish feel (already solid, minor tweaks only)
-- [ ] Test consistency across all input scenarios
-
-#### Bongos (BongosDash)
-- [ ] Verify interrupt mechanics after refactor
-- [ ] Test vertical bounces, wall bounces, wavedashes
-
-#### Conchshell
-- [ ] Test hold-to-extend mechanic
-- [ ] Verify steering smoothness
-- [ ] Wall collision handling (done, verify works)
+- [x] Inline single-dash logic directly on Player (no more per-ability scripts)
+- [x] Block straight-vertical dash while wall clinging (prevents shaft-climbing spam)
+- [x] Allow horizontal/diagonal dash off a wall while clinging
+- [x] Dash refill on ground touch
+- [x] Dash refill the instant wall contact begins (not on exit)
+- [ ] Polish feel (speed/duration tuning, minor tweaks only)
+- [ ] Test consistency across all input scenarios (keyboard + analog stick 8-way snap)
+- [ ] Confirm dash-end feel (no momentum carry-over/end-speed multiplier — check it doesn't feel too abrupt, especially on an upward dash)
 
 ### 5. Player Movement Polish
 - [ ] Coyote time feel (adjust 0.15s if needed)
@@ -75,7 +70,7 @@ Organized by dependencies and complexity (simplest first).
 **Why before enemies:** Enemies need something to parry/react to.
 
 **Code changes:**
-- [ ] Add `attack_state` to Player.PlayerState enum
+- [x] Add `Flag.ATTACKING` to Player's flag system (Player.PlayerState enum was replaced with a bitflag `Flag` enum — several conditions, e.g. attacking + dashing, can now be true at once)
 - [ ] Add attack cooldown timer
 - [ ] Add attack range (Area2D child)
 - [ ] Add attack damage value
@@ -236,10 +231,7 @@ Organized by dependencies and complexity (simplest first).
 
 **Scene: overlay when checkpoint touched**
 - [ ] Display current health/meter
-- [ ] Button: "Change Instrument" (shows dash selector)
-  - [ ] Bongos
-  - [ ] Panflute
-  - [ ] Conchshell
+- [ ] Button: "Change Instrument" (shows attack-loadout selector once the attack system supports multiple instruments — dash is unaffected by instrument choice)
 - [ ] Heal + save feedback
 - [ ] Auto-close after 2s or on input
 
@@ -288,7 +280,7 @@ Organized by dependencies and complexity (simplest first).
 - [ ] Red flash on parry fail / damage
 - [ ] Particle effect on hit (dust/slash effect)
 - [ ] Enemy knockback animation (visual feedback for hit)
-- [ ] Dash visual trails (color per dash type)
+- [ ] Dash visual trail
 
 ---
 
@@ -309,26 +301,14 @@ Organized by dependencies and complexity (simplest first).
 - [ ] Simple minion at end (harmless, for practice)
 - [ ] Goal: reach exit to continue
 
-### 21. Dash Tutorial Rooms
-**One per dash; unlock dash by completing room.**
+### 21. Dash Mastery Room
+**Single room teaching the one dash's full toolkit — no unlock gating, since there's only one dash.**
 
-**Panflute Room:**
-- [ ] Platforming challenge using grapple mechanics
-- [ ] Multiple walls to grapple between
-- [ ] Wall jump challenges
-- [ ] Reward: unlock panflute in inventory
-
-**Bongos Room:**
-- [ ] Platforming using bounce/interrupt mechanics
-- [ ] Down-dash bounces over gaps
-- [ ] Vertical dash wall bounces to climb
-- [ ] Reward: unlock bongos in inventory
-
-**Conchshell Room:**
-- [ ] Platforming using hold-to-extend mechanics
-- [ ] Steering challenges (narrow gaps)
-- [ ] Fast-paced timing challenges
-- [ ] Reward: unlock conchshell in inventory
+- [ ] Platforming built around 8-directional dashing (diagonals, not just horizontal/vertical)
+- [ ] Wall-cling + dash-off-wall repositioning challenges (horizontal/diagonal dash while clinging)
+- [ ] Gap/spike crossings that reward the wall-contact-start refill (dash again the instant you touch a wall, before cling even registers)
+- [ ] Regular wall-jump chaining (separate from dash — jump while clinging)
+- [ ] Once instruments-for-attacks exists (Phase 3+), revisit whether per-instrument rooms belong here instead of dash-focused
 
 ### 22. First Combat Room
 **Gentle intro to fighting; after tutorials.**
@@ -444,11 +424,11 @@ Organized by dependencies and complexity (simplest first).
 
 ### 28. Bug Fixes & Edge Cases
 - [ ] Test rapid input sequences
-- [ ] Test wall bounces near edges
+- [ ] Test wall jumps near edges
 - [ ] Test parry during dash
 - [ ] Test checkpoint healing after respawn
 - [ ] Test save/load cycle
-- [ ] Test all dash type switches
+- [ ] Test wall-cling vertical-dash block doesn't false-positive on diagonal input
 
 ### 29. Performance
 - [ ] Profile FPS in full level
@@ -463,7 +443,7 @@ Organized by dependencies and complexity (simplest first).
 - [ ] More enemy variety (ranged variants, flying enemies)
 - [ ] Boss phases + phase-specific attacks
 - [ ] Story/dialogue system
-- [ ] More dash types
+- [ ] More instruments (attack variety — dash stays single/unified by design)
 - [ ] Difficulty modes
 - [ ] Leaderboards (if online)
 
@@ -474,7 +454,7 @@ Organized by dependencies and complexity (simplest first).
 1. Save System
 2. Checkpoint System
 3. Health Polish
-4. Dash Polish (esp. Panflute wall jump)
+4. Dash Polish (single 8-directional dash feel/tuning)
 5. Basic Attack + Parry
 6. Enemy Type #1
 7. Sound Effects + Music
