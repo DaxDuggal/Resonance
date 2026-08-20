@@ -1,6 +1,6 @@
 extends Node
 
-var player
+var player: Player
 var is_paused: bool = false
 var last_safe_position: Vector2 = Vector2.ZERO
 

@@ -1,0 +1,55 @@
+[gd_scene format=3 uid="uid://5yibgstxx4ws"]
+
+[ext_resource type="Script" uid="uid://d2oxaledp4vio" path="res://scripts/flying_enemy.gd" id="1"]
+[ext_resource type="Script" uid="uid://dano3qelwypyt" path="res://scripts/damage_hitbox.gd" id="2"]
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_body"]
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_hitbox"]
+radius = 13.0
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_hurtbox"]
+
+[sub_resource type="BlackboardPlan" id="BlackboardPlan_c4a5w"]
+
+[sub_resource type="BTSequence" id="BTSequence_lrtul"]
+
+[sub_resource type="BTSelector" id="BTSelector_dyvm4"]
+children = [SubResource("BTSequence_lrtul")]
+
+[sub_resource type="BehaviorTree" id="BehaviorTree_kvpfn"]
+blackboard_plan = SubResource("BlackboardPlan_c4a5w")
+root_task = SubResource("BTSelector_dyvm4")
+
+[sub_resource type="BlackboardPlan" id="BlackboardPlan_fgwew"]
+
+[node name="FlyingEnemy" type="CharacterBody2D" unique_id=197813680]
+collision_layer = 4
+script = ExtResource("1")
+
+[node name="Placeholder" type="Polygon2D" parent="." unique_id=1990793092]
+color = Color(0.2, 0.3, 0.85, 1)
+polygon = PackedVector2Array(0, -10, 10, 0, 0, 10, -10, 0)
+
+[node name="BodyShape" type="CollisionShape2D" parent="." unique_id=1965105304]
+shape = SubResource("CircleShape2D_body")
+
+[node name="Hitbox" type="Area2D" parent="." unique_id=518496068]
+collision_layer = 16
+collision_mask = 0
+monitoring = false
+script = ExtResource("2")
+
+[node name="HitboxShape" type="CollisionShape2D" parent="Hitbox" unique_id=1808077828]
+shape = SubResource("CircleShape2D_hitbox")
+
+[node name="Hurtbox" type="Area2D" parent="." unique_id=1301203023]
+collision_layer = 64
+collision_mask = 16
+
+[node name="HurtboxShape" type="CollisionShape2D" parent="Hurtbox" unique_id=1160497199]
+shape = SubResource("CircleShape2D_hurtbox")
+
+[node name="BTPlayer" type="BTPlayer" parent="." unique_id=1442206898]
+behavior_tree = SubResource("BehaviorTree_kvpfn")
+blackboard_plan = SubResource("BlackboardPlan_fgwew")

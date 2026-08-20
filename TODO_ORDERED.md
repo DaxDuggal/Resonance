@@ -117,19 +117,19 @@ that will eventually give instruments something to do.
 ### 9. Enemy Foundation
 
 **Base Enemy Script (enemy.gd):**
-- [ ] Extends CharacterBody2D
-- [ ] Health system (current_health, max_health, take_damage)
-- [ ] State machine (IDLE, ATTACKING, STAGGERED, DEAD)
-- [ ] Physics (gravity, collision detection)
-- [ ] Death: removal from scene + drops loot (optional)
+- [x] Extends CharacterBody2D
+- [x] Health system (current_health, max_health, take_damage) — no shared HealthComponent, duplicated like Player's
+- [ ] State machine — skipped for now; plain GDScript decision functions in each subclass instead, written to port cleanly to LimboAI once more enemy types exist and it's worth the setup
+- [x] Physics (gravity, collision detection) — lives per-subclass, not the base, since grounded vs. flying enemies won't move alike
+- [x] Death: removal from scene (no loot drop yet)
 
-**Enemy Scene Template:**
-- [ ] Create `scenes/enemy.tscn`
-- [ ] CharacterBody2D with collision
-- [ ] AnimatedSprite2D child
-- [ ] Attack hitbox (Area2D)
-- [ ] Hurtbox (Area2D, receives damage)
-- [ ] Spawn in levels, configure health/attacks per type
+**Enemy Scene Template — first concrete type instead of a generic template:**
+- [x] Create `scenes/melee_ground_enemy.tscn` (grounded, contact-damage-only, no attacks — see script comments)
+- [x] CharacterBody2D with collision
+- [ ] AnimatedSprite2D child — placeholder Polygon2D box for now, no art yet
+- [ ] Attack hitbox (Area2D) — N/A, this enemy type has no attacks by design
+- [x] Hurtbox (Area2D, receives damage) — wired and ready, but nothing calls into it yet since the player has no spatial attack hitbox to detect it with
+- [ ] Spawn in levels — not yet placed in game.tscn
 
 ### 10. Enemy Type #1: Melee Minion
 **Simplest enemy; teaches parry timing.**
