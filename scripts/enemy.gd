@@ -1,21 +1,24 @@
 extends CharacterBody2D
 class_name Enemy
 
-# Shared base for every enemy type: health, taking damage, dealing contact
-# damage, and a lifetime cap. Deliberately does NOT own movement or gravity —
-# a grounded chase-and-hop enemy and a future flying enemy won't move
-# anything alike, so that's entirely up to each subclass's own
-# _physics_process(). No shared "Creature" class with Player and no
-# HealthComponent, per the earlier architecture decision — this duplicates
-# the same small health block Player has rather than sharing one.
+# Shared base for every enemy type: health, taking damage, and dealing
+# contact damage. Deliberately does NOT own movement or gravity — a grounded
+# chase-and-hop enemy and a flying enemy won't move anything alike, so
+# that's entirely up to each subclass's own _physics_process(). No shared
+# "Creature" class with Player and no HealthComponent, per the earlier
+# architecture decision — this duplicates the same small health block
+# Player has rather than sharing one.
+#
+# Enemies live indefinitely for now — no time-based despawn. Death is
+# health-driven (take_damage() -> die() at 0 HP) or instant via a successful
+# player parry (player.gd's _on_parry_success() calls die() directly on
+# whatever enemy owns the DamageHitbox that got parried — an interim rule
+# since enemies have no real attacks to parry yet; once they do, this should
+# probably become a stagger instead of an outright kill, per TODO Phase 4 §10).
 
 @export_group("Health")
 @export var max_health := 2
 var current_health := 2
-
-@export_group("Lifetime")
-@export var lifetime := 10.0  # seconds before this enemy despawns on its own, independent of health — a placeholder cap until real spawn/despawn triggers exist
-var lifetime_timer := 0.0
 
 @export_group("Contact Damage")
 @export var contact_damage := 1
@@ -25,7 +28,6 @@ var is_dead := false
 
 func _ready() -> void:
 	current_health = max_health
-	lifetime_timer = lifetime
 
 	# Detection direction is player.gd -> enemy's Hitbox, not the other way
 	# around: the Hitbox is a passive DamageHitbox (monitoring = false,
@@ -55,14 +57,6 @@ func take_damage(amount: int, knockback: Vector2 = Vector2.ZERO) -> void:
 	velocity += knockback
 
 	if current_health <= 0:
-		die()
-
-
-func tick_lifetime(delta: float) -> void:
-	if is_dead:
-		return
-	lifetime_timer = maxf(lifetime_timer - delta, 0.0)
-	if lifetime_timer <= 0.0:
 		die()
 
 

@@ -12,3 +12,7 @@ mono_crash_*.json
 *.csproj
 *.sln
 
+# Secrets / API keys
+.env
+*.env
+

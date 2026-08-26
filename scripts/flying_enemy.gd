@@ -16,7 +16,7 @@ class_name FlyingEnemy
 # them into: Selector [ Sequence [ PlayerInRange, ChasePlayer ], Stop ].
 
 @export_group("Movement")
-@export var move_speed := 90.0
+@export var move_speed := 130.0
 @export var detection_range := 350.0
 
 @onready var bt_player: BTPlayer = $BTPlayer
@@ -30,10 +30,6 @@ func _ready() -> void:
 
 
 func _physics_process(delta: float) -> void:
-	if is_dead:
-		return
-
-	tick_lifetime(delta)
 	if is_dead:
 		return
 

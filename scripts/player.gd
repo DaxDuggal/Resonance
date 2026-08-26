@@ -97,7 +97,7 @@ var attack_cooldown_timer := 0.0
 # ========== PARRY ==========
 
 @export_group("Parry")
-@export var parry_window_duration := 0.2
+@export var parry_window_duration := 0.3  # was 0.2
 @export var parry_cooldown := 0.5
 @export var parry_heal_amount := 0.25
 
@@ -168,10 +168,11 @@ var dash_buffer_timer := 0.0
 # small fixed cooldown so a refill can't chain instantly into another dash.
 
 @export_group("Dash")
-@export var dash_speed := 670.0
+@export var dash_speed := 700.0
 @export var dash_duration := 0.07
-@export var dash_cooldown := 0.07
-@export var dash_grace_time := 0.2  # invuln grace after the dash ends — was 0.1, technically already longer than dash_duration (0.07) but too subtle to actually feel
+@export var dash_cooldown := 0.3  # was 0.16. Widened to a real, felt Silksong-style pause between dashes rather than a near-instant refill.
+@export var dash_land_cooldown := 0.1  # see _handle_coyote_and_dash_refresh: landing on solid ground clamps whatever's left of dash_cooldown_timer down to this (Nine Sols-style short refresh) instead of forcing the full dash_cooldown to elapse — but only ever shortens it, never extends a cooldown that already had less time left.
+@export var dash_grace_time := 0.05  # invuln grace after the dash ends — was 0.2. Deliberately kept SHORTER than dash_cooldown (0.1) now: since grace starts counting down the instant the dash ends and cooldown blocks the next dash for longer than grace lasts, there's a guaranteed real window (cooldown - grace = ~0.05s) after every dash where the player is neither dashing, nor in grace, nor able to dash again yet — genuinely vulnerable. Spamming dash no longer reliably chains invulnerability from one dash straight into the next.
 @export var dash_gravity_mult := 0.75  # slight softening of gravity during the dash's fall — only applies while already falling; an ongoing jump's rise decays at normal gravity so dashing mid-jump doesn't extend the rise
 @export var dash_tail_speed_mult := 0.6  # horizontal speed eases to this fraction by dash end
 @export var dash_start_ease_window := 0.15  # fraction of dash_duration spent ramping up to full speed instead of snapping to it instantly — sharp, but not a single-frame step
@@ -193,6 +194,7 @@ var wall_jump_buffer_timer := 0.0
 
 
 var was_on_floor := false
+var was_grounded_for_dash := true  # landing-transition tracker for dash_cooldown refresh, kept separate from was_on_floor above since that's set mid-frame (before _handle_coyote_and_dash_refresh runs) and would already equal the current frame's grounded state by the time it got here
 
 
 # ========== WALL CLING ==========
@@ -280,8 +282,9 @@ func _physics_process(delta: float) -> void:
 	_handle_special_start(special_pressed)
 	_handle_checkpoint(grounded)
 
+	var was_dashing := has_flag(Flag.DASHING)
 	jump_consumed = _handle_dash_state(delta, jump_consumed)
-	_handle_normal_movement(input_x, grounded, delta)
+	_handle_normal_movement(input_x, grounded, delta, was_dashing)
 
 	jump_consumed = _handle_jump_execution(jump_pressed, jump_released, grounded, jump_consumed)
 
@@ -363,10 +366,16 @@ func _handle_dash_start(input_x: float, _input_y: float) -> void:
 
 	dash_direction = dash_dir
 	dash_timer = dash_duration
-	# Horizontal velocity gets the dash snap; vertical velocity is left alone
-	# so a dash mid-fall or mid-jump-arc continues that arc underneath the
-	# dash instead of getting hard-reset to 0 — makes the dash feel layered
-	# onto existing momentum rather than a separate, disconnected state.
+	# Only cancel an existing RISE (velocity.y < 0) at dash start — jumping
+	# still arcs and decays normally via gravity right up until the dash
+	# interrupts it, but if that interrupt happens while still ascending,
+	# the dash was otherwise carrying that upward momentum straight through
+	# its whole duration (full gravity only decays it "normally," which
+	# isn't fast enough over a dash's short window to stop it reading as
+	# "the dash goes upward"). Falling velocity is left untouched — a dash
+	# triggered while already falling still carries that momentum in, same
+	# as before.
+	velocity.y = max(velocity.y, 0.0)
 	velocity.x = dash_direction.x * dash_speed
 	dash_available = false
 	dash_buffer_timer = 0.0
@@ -467,8 +476,20 @@ func _end_dash() -> void:
 	dash_grace_timer = dash_grace_time
 
 
-func _handle_normal_movement(input_x: float, grounded: bool, delta: float) -> void:
-	if has_flag(Flag.DASHING):
+func _handle_normal_movement(input_x: float, grounded: bool, delta: float, was_dashing: bool) -> void:
+	# was_dashing (captured BEFORE _handle_dash_state ran this frame) covers
+	# the exact frame the dash ends: _end_dash() clears Flag.DASHING mid-frame,
+	# so checking only the live flag here let this function also run on that
+	# same frame right after the dash's own tail-easing already set velocity —
+	# two separate deceleration systems stacking on one frame, which read as
+	# a sudden extra drop right as the dash ended instead of one smooth curve.
+	if has_flag(Flag.DASHING) or was_dashing:
+		return
+
+	if has_flag(Flag.PARRYING) and grounded:
+		# Ground parry is a firm stationary block — no drifting on residual
+		# run momentum or sliding on held input during the window.
+		velocity.x = 0.0
 		return
 
 	var direction := input_x
@@ -664,8 +685,21 @@ func _handle_coyote_and_dash_refresh(_input_x: float, _input_y: float, grounded:
 		coyote_timer = coyote_time
 		if not has_flag(Flag.DASHING):
 			dash_available = true
+		if not was_grounded_for_dash:
+			# Just landed. Nine Sols-style short refresh: clamp whatever's
+			# left of dash_cooldown_timer down to dash_land_cooldown instead
+			# of forcing the full dash_cooldown to elapse — but only if that
+			# actually shortens it. A dash taken right before landing (still
+			# has most of the long cooldown left) gets cut down to the short
+			# landing cooldown; a dash taken a while ago (cooldown already
+			# nearly/fully expired) isn't extended back up by landing.
+			# Only fires on the landing frame itself, not continuously, so it
+			# can't be used to keep the cooldown short while just standing.
+			dash_cooldown_timer = minf(dash_cooldown_timer, dash_land_cooldown)
 	else:
 		coyote_timer = tick_timer(coyote_timer, delta)
+
+	was_grounded_for_dash = grounded
 
 	# Refills on entering wall-cling specifically, not any wall touch.
 	if has_flag(Flag.WALL_CLINGING) and not was_wall_clinging:
@@ -841,10 +875,16 @@ func apply_corner_correction(delta: float, input_x: float) -> void:
 				return
 
 # ============ Death / Health ==========
-func take_damage(amount: int = 1, knockback: Vector2 = Vector2.ZERO) -> void:
+func take_damage(amount: int = 1, knockback: Vector2 = Vector2.ZERO, lock_actions: bool = true) -> void:
 	current_health = maxi(current_health - amount, 0)
 	invulnerability_timer = invulnerability_duration
-	set_flag(Flag.HURT, true)
+	# Flag.HURT is the hard action-lock (blocks jump/dash/locomotion — see its
+	# use sites). Reserved for hazards, which respawn you right after anyway.
+	# Enemy contact damage should sting (invuln + hit-flash + a brief
+	# knockback-only control_lock_timer, below) without taking away your
+	# ability to act — getting clipped by an enemy shouldn't freeze you.
+	if lock_actions:
+		set_flag(Flag.HURT, true)
 	hit_flash_timer = hit_flash_duration
 
 	if knockback != Vector2.ZERO:
@@ -854,17 +894,17 @@ func take_damage(amount: int = 1, knockback: Vector2 = Vector2.ZERO) -> void:
 	if current_health <= 0:
 		dead()
 
-func take_enemy_damage(amount: int = 1, knockback: Vector2 = Vector2.ZERO) -> void:
+func take_enemy_damage(amount: int = 1, knockback: Vector2 = Vector2.ZERO, source_hitbox: Area2D = null) -> void:
 	if is_invulnerable():
 		return
 
 	if has_flag(Flag.PARRYING):
-		_on_parry_success()
+		_on_parry_success(source_hitbox)
 		return
 
-	take_damage(amount, knockback)
+	take_damage(amount, knockback, false)
 
-func _on_parry_success() -> void:
+func _on_parry_success(source_hitbox: Area2D = null) -> void:
 	_parry_heal_accumulator += parry_heal_amount
 	while _parry_heal_accumulator >= 1.0 and current_health < max_health:
 		_parry_heal_accumulator -= 1.0
@@ -873,6 +913,18 @@ func _on_parry_success() -> void:
 	parry_flash_timer = PARRY_FLASH_DURATION
 
 	current_meter = mini(current_meter + 1, max_meter)
+
+	# Interim design: real enemies have no attacks/telegraphs to parry yet
+	# (contact damage only), so a successful parry just outright kills
+	# whatever touched us, rather than the eventual "stagger + real damage"
+	# behavior planned once enemies get actual attacks (TODO Phase 4 §10).
+	# source_hitbox is the enemy's passive DamageHitbox Area2D — its direct
+	# parent is always the Enemy node itself (same assumption enemy.gd's own
+	# _ready() makes when it does $Hitbox.damage = contact_damage).
+	if source_hitbox:
+		var enemy := source_hitbox.get_parent() as Enemy
+		if enemy:
+			enemy.die()
 
 func _on_hitbox_body_entered(_body: Node2D) -> void:
 	hazard_hit()
@@ -894,7 +946,7 @@ func _on_hitbox_area_entered(area: Area2D) -> void:
 			var away_x := global_position.x - area.global_position.x
 			var horizontal_dir := signf(away_x) if absf(away_x) > 1.0 else float(-facing_direction)
 			knockback = Vector2(horizontal_dir, -area.knockback_vertical_ratio) * area.knockback_force
-		take_enemy_damage(area.damage, knockback)
+		take_enemy_damage(area.damage, knockback, area)
 	else:
 		hazard_hit()
 
@@ -955,9 +1007,17 @@ func tick_timer(time_value: float, delta: float) -> float:
 	return maxf(time_value - delta, 0.0)
 
 func _on_hazard_area_entered(_area: Area2D) -> void:
+	# DamageHitbox contact (enemies, projectiles) is already fully handled,
+	# parry-aware, by _on_hitbox_area_entered() above — it must NOT also
+	# count here, or a parried hit still gets silently punished a frame
+	# later by _handle_hazard_overlap()'s non-parry-aware hazard_hit().
+	if _area is DamageHitbox:
+		return
 	hazard_overlap_count += 1
 
 func _on_hazard_area_exited(_area: Area2D) -> void:
+	if _area is DamageHitbox:
+		return
 	hazard_overlap_count = maxi(hazard_overlap_count - 1, 0)
 
 func _on_hazard_body_entered(_body: Node2D) -> void:

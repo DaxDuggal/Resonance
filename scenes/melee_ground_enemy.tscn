@@ -3,6 +3,15 @@
 [ext_resource type="Script" uid="uid://c1y6j32ua3i80" path="res://scripts/melee_ground_enemy.gd" id="1"]
 [ext_resource type="Script" uid="uid://dano3qelwypyt" path="res://scripts/damage_hitbox.gd" id="2"]
 [ext_resource type="Texture2D" uid="uid://da0a0116l1mw5" path="res://assets/sprites/slime_green.png" id="2_7sbxu"]
+[ext_resource type="Script" uid="uid://wo30m1ykm0l" path="res://scripts/bt/bt_player_in_range.gd" id="4_c44ni"]
+[ext_resource type="Script" uid="uid://bumbwfxp1su26" path="res://scripts/bt/bt_player_above.gd" id="5_txqum"]
+[ext_resource type="Script" uid="uid://dl8hnqkg8bddl" path="res://scripts/bt/bt_jump.gd" id="7_b1bc8"]
+[ext_resource type="Script" uid="uid://c6o5ck82jh6dj" path="res://scripts/bt/bt_forward_blocked.gd" id="8_b1kfy"]
+[ext_resource type="Script" uid="uid://7j0vitkoiu0i" path="res://scripts/bt/bt_obstacle_too_tall.gd" id="9_4bc8t"]
+[ext_resource type="Script" uid="uid://bn8r6hdln3utk" path="res://scripts/bt/bt_turn_around.gd" id="10_2pu5q"]
+[ext_resource type="Script" uid="uid://clg2nvpa50wlb" path="res://scripts/bt/bt_halt_horizontal.gd" id="11_0hn4l"]
+[ext_resource type="Script" uid="uid://b0hu34wjk3i3s" path="res://scripts/bt/bt_at_ledge.gd" id="12_l6idw"]
+[ext_resource type="Script" uid="uid://dbjkxct8impdp" path="res://scripts/bt/bt_walk.gd" id="13_qsx4c"]
 
 [sub_resource type="AtlasTexture" id="AtlasTexture_c44ni"]
 atlas = ExtResource("2_7sbxu")
@@ -49,6 +58,86 @@ size = Vector2(18, 17.319458)
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_hurtbox"]
 size = Vector2(22, 19.357042)
 
+[sub_resource type="BlackboardPlan" id="BlackboardPlan_q5o84"]
+
+[sub_resource type="BTCondition" id="BTCondition_v4c7a"]
+script = ExtResource("4_c44ni")
+
+[sub_resource type="BTCondition" id="BTCondition_asvl4"]
+script = ExtResource("5_txqum")
+
+[sub_resource type="BTAction" id="BTAction_jxe3s"]
+script = ExtResource("7_b1bc8")
+
+[sub_resource type="BTDynamicSequence" id="BTSequence_4oref"]
+children = [SubResource("BTCondition_v4c7a"), SubResource("BTCondition_asvl4"), SubResource("BTAction_jxe3s")]
+
+[sub_resource type="BTCondition" id="BTCondition_iijph"]
+script = ExtResource("8_b1kfy")
+
+[sub_resource type="BTCondition" id="BTCondition_bgwyf"]
+script = ExtResource("9_4bc8t")
+
+[sub_resource type="BTAction" id="BTAction_t555o"]
+script = ExtResource("10_2pu5q")
+
+[sub_resource type="BTDynamicSequence" id="BTSequence_mnk1g"]
+children = [SubResource("BTCondition_iijph"), SubResource("BTCondition_bgwyf"), SubResource("BTAction_t555o")]
+
+[sub_resource type="BTCondition" id="BTCondition_7cncp"]
+script = ExtResource("8_b1kfy")
+
+[sub_resource type="BTAction" id="BTAction_62nnq"]
+script = ExtResource("7_b1bc8")
+
+[sub_resource type="BTDynamicSequence" id="BTSequence_n84fg"]
+children = [SubResource("BTCondition_7cncp"), SubResource("BTAction_62nnq")]
+
+[sub_resource type="BTCondition" id="BTCondition_ocrdh"]
+script = ExtResource("4_c44ni")
+
+[sub_resource type="BTCondition" id="BTCondition_a2nrx"]
+script = ExtResource("8_b1kfy")
+
+[sub_resource type="BTAction" id="BTAction_4q4lm"]
+script = ExtResource("11_0hn4l")
+
+[sub_resource type="BTDynamicSequence" id="BTSequence_mssqu"]
+children = [SubResource("BTCondition_ocrdh"), SubResource("BTCondition_a2nrx"), SubResource("BTAction_4q4lm")]
+
+[sub_resource type="BTCondition" id="BTCondition_u3p8y"]
+script = ExtResource("4_c44ni")
+
+[sub_resource type="BTCondition" id="BTCondition_72776"]
+script = ExtResource("12_l6idw")
+
+[sub_resource type="BTAction" id="BTAction_3788v"]
+script = ExtResource("11_0hn4l")
+
+[sub_resource type="BTDynamicSequence" id="BTSequence_x8oaa"]
+children = [SubResource("BTCondition_u3p8y"), SubResource("BTCondition_72776"), SubResource("BTAction_3788v")]
+
+[sub_resource type="BTCondition" id="BTCondition_43a6a"]
+script = ExtResource("4_c44ni")
+
+[sub_resource type="BTAction" id="BTAction_sqw86"]
+script = ExtResource("13_qsx4c")
+
+[sub_resource type="BTDynamicSequence" id="BTSequence_e2a5l"]
+children = [SubResource("BTCondition_43a6a"), SubResource("BTAction_sqw86")]
+
+[sub_resource type="BTAction" id="BTAction_fallback"]
+script = ExtResource("11_0hn4l")
+
+[sub_resource type="BTDynamicSelector" id="BTSelector_txqum"]
+children = [SubResource("BTSequence_4oref"), SubResource("BTSequence_mnk1g"), SubResource("BTSequence_n84fg"), SubResource("BTSequence_mssqu"), SubResource("BTSequence_x8oaa"), SubResource("BTSequence_e2a5l"), SubResource("BTAction_fallback")]
+
+[sub_resource type="BehaviorTree" id="BehaviorTree_ts7x6"]
+blackboard_plan = SubResource("BlackboardPlan_q5o84")
+root_task = SubResource("BTSelector_txqum")
+
+[sub_resource type="BlackboardPlan" id="BlackboardPlan_cvbgm"]
+
 [node name="MeleeGroundEnemy" type="CharacterBody2D" unique_id=2004565075]
 collision_layer = 4
 script = ExtResource("1")
@@ -90,9 +179,14 @@ position = Vector2(0, -14)
 target_position = Vector2(16, 0)
 
 [node name="LedgeRay" type="RayCast2D" parent="." unique_id=355266769]
-position = Vector2(16, 0)
-target_position = Vector2(0, 16)
+position = Vector2(17, -6)
+target_position = Vector2(0, 40)
+collision_mask = 1
 
 [node name="ObstacleTopRay" type="RayCast2D" parent="." unique_id=625964088]
 position = Vector2(0, -32)
 target_position = Vector2(16, 0)
+
+[node name="BTPlayer" type="BTPlayer" parent="." unique_id=1868362994]
+behavior_tree = SubResource("BehaviorTree_ts7x6")
+blackboard_plan = SubResource("BlackboardPlan_cvbgm")

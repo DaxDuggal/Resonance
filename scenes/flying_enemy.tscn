@@ -2,6 +2,9 @@
 
 [ext_resource type="Script" uid="uid://d2oxaledp4vio" path="res://scripts/flying_enemy.gd" id="1"]
 [ext_resource type="Script" uid="uid://dano3qelwypyt" path="res://scripts/damage_hitbox.gd" id="2"]
+[ext_resource type="Script" uid="uid://wo30m1ykm0l" path="res://scripts/bt/bt_player_in_range.gd" id="3_dyvm4"]
+[ext_resource type="Script" uid="uid://d4m5o48073ue6" path="res://scripts/bt/bt_chase_player.gd" id="4_ms2v3"]
+[ext_resource type="Script" uid="uid://c7l0bikxln86q" path="res://scripts/bt/bt_stop.gd" id="5_1bv63"]
 
 [sub_resource type="CircleShape2D" id="CircleShape2D_body"]
 
@@ -12,10 +15,20 @@ radius = 13.0
 
 [sub_resource type="BlackboardPlan" id="BlackboardPlan_c4a5w"]
 
+[sub_resource type="BTCondition" id="BTCondition_x4wu4"]
+script = ExtResource("3_dyvm4")
+
+[sub_resource type="BTAction" id="BTAction_iapyh"]
+script = ExtResource("4_ms2v3")
+
 [sub_resource type="BTSequence" id="BTSequence_lrtul"]
+children = [SubResource("BTCondition_x4wu4"), SubResource("BTAction_iapyh")]
+
+[sub_resource type="BTAction" id="BTAction_uekyw"]
+script = ExtResource("5_1bv63")
 
 [sub_resource type="BTSelector" id="BTSelector_dyvm4"]
-children = [SubResource("BTSequence_lrtul")]
+children = [SubResource("BTSequence_lrtul"), SubResource("BTAction_uekyw")]
 
 [sub_resource type="BehaviorTree" id="BehaviorTree_kvpfn"]
 blackboard_plan = SubResource("BlackboardPlan_c4a5w")
