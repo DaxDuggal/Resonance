@@ -55,6 +55,11 @@ func save_game(slot: int) -> void:
 	cfg.set_value("progress", "xp", Global.xp)
 	cfg.set_value("progress", "death_count", Global.death_count)
 
+	# So quitting mid-run (without resting) doesn't quietly undo kills since
+	# your last checkpoint, or forget permanent one-time state.
+	cfg.set_value("world_state", "resettable", WorldState.resettable)
+	cfg.set_value("world_state", "permanent", WorldState.permanent)
+
 	var err := cfg.save(_slot_path(slot))
 	if err != OK:
 		push_warning("SaveManager: failed to save slot %d (%s)" % [slot, error_string(err)])
@@ -85,6 +90,9 @@ func _apply_slot_data(cfg: ConfigFile) -> void:
 	Global.currency = cfg.get_value("progress", "currency", 0)
 	Global.xp = cfg.get_value("progress", "xp", 0)
 	Global.death_count = cfg.get_value("progress", "death_count", 0)
+
+	WorldState.resettable = cfg.get_value("world_state", "resettable", {})
+	WorldState.permanent = cfg.get_value("world_state", "permanent", {})
 
 
 func delete_save(slot: int) -> void:

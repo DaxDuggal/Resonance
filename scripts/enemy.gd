@@ -25,8 +25,32 @@ var current_health := 2
 
 var is_dead := false
 
+# Optional manual override for the WorldState persistence ID — leave blank
+# to auto-derive one from this instance's scene path + node path (stable as
+# long as the node isn't moved/renamed in the tree), which is enough for
+# every hand-placed enemy in a level. Only needed for edge cases an
+# auto-derived ID can't cover, e.g. an enemy spawned dynamically at runtime
+# rather than placed in the scene file.
+@export var world_state_id: String = ""
+
+
+func _get_world_state_id() -> String:
+	if world_state_id != "":
+		return world_state_id
+	return get_tree().current_scene.scene_file_path + "::" + str(get_path())
+
 
 func _ready() -> void:
+	# Already killed since the last checkpoint rest — don't even set up,
+	# just remove. Scene reload (every player death) re-instances this node
+	# fresh from the .tscn with no memory of its own, so this check is the
+	# only thing standing between "killed" and "back at full health at its
+	# spawn point" on the very next death.
+	if WorldState.is_resolved(_get_world_state_id()):
+		is_dead = true
+		queue_free()
+		return
+
 	current_health = max_health
 
 	# Detection direction is player.gd -> enemy's Hitbox, not the other way
@@ -64,4 +88,8 @@ func die() -> void:
 	if is_dead:
 		return
 	is_dead = true
+	# Resettable, not permanent: stays dead across ordinary deaths/reloads,
+	# but comes back once the player rests at a checkpoint again (see
+	# Checkpoint.activate() -> WorldState.reset_resettable()).
+	WorldState.set_resolved(_get_world_state_id())
 	queue_free()

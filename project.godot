@@ -21,6 +21,7 @@ Signal_Debugger="*uid://ywb0tuefuvoy"
 Global="*uid://cjlywcn8st46s"
 Preferences="*res://scripts/preferences.gd"
 SaveManager="*res://scripts/save_manager.gd"
+WorldState="*res://scripts/world_state.gd"
 PhantomCameraManager="*uid://duq6jhf6unyis"
 
 [display]

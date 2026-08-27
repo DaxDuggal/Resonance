@@ -37,6 +37,11 @@ func activate(player: Player) -> void:
 	if heal_on_activate:
 		player.current_health = player.max_health
 
+	# Resting resets the world (Hollow Knight-style): enemies killed since
+	# your last rest come back. Permanent state (future one-time pickups,
+	# opened chests, etc.) is untouched by this.
+	WorldState.reset_resettable()
+
 	# Only one checkpoint should read as "current" at a time. Re-touching an
 	# earlier checkpoint after a later one is fully supported (last touched
 	# always wins, in either direction) — this just keeps the visual state

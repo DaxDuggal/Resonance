@@ -383,7 +383,7 @@ limit_target = NodePath("../../TileMapLayer")
 metadata/_custom_type_script = "uid://bhexx6mj1xv3q"
 
 [node name="MeleeGroundEnemy" parent="." unique_id=2004565075 instance=ExtResource("5_0tnpc")]
-position = Vector2(601, 24)
+position = Vector2(669, 41)
 
 [node name="checkpoint" parent="." unique_id=361825844 instance=ExtResource("1_iywne")]
 position = Vector2(389, -239)
