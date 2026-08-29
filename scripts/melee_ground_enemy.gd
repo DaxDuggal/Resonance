@@ -79,6 +79,14 @@ func _physics_process(delta: float) -> void:
 	turn_lock_timer = maxf(turn_lock_timer - delta, 0.0)
 
 	_apply_gravity(delta)
+
+	# While stunned, skip facing/rays/BT entirely and just let physics carry
+	# the knockback — the BT's Walk/HaltHorizontal actions hard-set
+	# velocity.x every tick, which would otherwise cancel it out instantly.
+	if _tick_knockback_stun(delta):
+		move_and_slide()
+		return
+
 	_update_facing()
 	_update_rays()
 

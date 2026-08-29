@@ -39,6 +39,13 @@ func is_airborne() -> bool:
 @onready var sprite: AnimatedSprite2D = $AnimatedSprite2D
 @onready var timer: Timer = $Timer
 
+@onready var attack_hitbox: DamageHitbox = $AttackHitbox
+@onready var attack_hitbox_shape: CollisionShape2D = $AttackHitbox/CollisionShape2D
+@onready var attack_hitbox_visual: ColorRect = $AttackHitbox/CollisionShape2D/Visual
+@onready var special_hitbox: DamageHitbox = $SpecialHitbox
+@onready var special_hitbox_shape: CollisionShape2D = $SpecialHitbox/CollisionShape2D
+@onready var special_hitbox_visual: ColorRect = $SpecialHitbox/CollisionShape2D/Visual
+
 func _ready() -> void:
 	Global.player = self
 
@@ -52,6 +59,20 @@ func _ready() -> void:
 		current_health = max_health
 
 	Global.last_safe_position = global_position
+
+	# Keep the hitboxes' damage in sync with the tunable exports above,
+	# rather than hardcoding it twice (same pattern enemy.gd uses to sync
+	# its own Hitbox.damage from contact_damage).
+	attack_hitbox.damage = attack_damage
+	special_hitbox.damage = special_damage
+
+	# Keep each hitbox's debug-preview ColorRect sized/centered to match its
+	# actual CollisionShape2D — Visual used to be a hand-placed rect with its
+	# own hardcoded offsets, so resizing the real hitbox in the editor (the
+	# thing that actually affects gameplay) silently stopped matching what
+	# you saw on screen. Deriving it here means they can't drift apart again.
+	_sync_hitbox_visual_to_shape(attack_hitbox_shape, attack_hitbox_visual)
+	_sync_hitbox_visual_to_shape(special_hitbox_shape, special_hitbox_visual)
 
 	if Global.did_just_die:
 		invulnerability_timer = invulnerability_duration
@@ -86,13 +107,19 @@ var hit_flash_timer := 0.0
 
 # ========== ATTACK ==========
 
+const ENEMY_HURTBOX_LAYER := 64  # matches project.godot's layer_7 "EnemyHurtbox" — used to tell an enemy hit apart from a PogoSurface hazard hit when both share AttackHitbox's collision_mask
+
 @export_group("Attack")
 @export var attack_damage := 1
-@export var attack_duration := 0.25
-@export var attack_cooldown := 0.4
+@export var attack_duration := 0.15
+@export var attack_cooldown := 0.15
+@export var attack_hitbox_horizontal_offset := 12.0  # matches AttackHitbox's original scene position.x
+@export var attack_hitbox_vertical_offset := 14.0  # how far above/below the player the up/down attack hitbox sits
+@export var attack_recoil_force := 40.0  # tiny push opposite the swing direction on a landed hit — not felt for down attacks, see down_attack_bounce below
 
 var attack_state_timer := 0.0
 var attack_cooldown_timer := 0.0
+var attack_direction := Vector2.RIGHT  # locked in when the swing starts (see _handle_attack_start) — RIGHT/LEFT for a horizontal swing, UP/DOWN for a directional one
 
 # ========== PARRY ==========
 
@@ -100,6 +127,7 @@ var attack_cooldown_timer := 0.0
 @export var parry_window_duration := 0.3  # was 0.2
 @export var parry_cooldown := 0.5
 @export var parry_heal_amount := 0.25
+@export var parry_damage := 0.5  # chip damage dealt to the parried enemy (float — enemy health supports fractional values now, see enemy.gd)
 
 var parry_state_timer := 0.0
 var parry_cooldown_timer := 0.0
@@ -109,9 +137,13 @@ var parry_flash_timer := 0.0
 const PARRY_FLASH_DURATION := 0.15
 
 # ========== METER ==========
+# Each landed attack hit or successful parry adds 1 point directly (no
+# grouping/streak — 3 hits fills it from empty). Special needs the bar
+# completely full (current_meter == max_meter) to use, and draining resets
+# it to 0 — one use per full bank, not spendable in smaller pieces.
 
 @export_group("Meter")
-@export var max_meter := 5
+@export var max_meter := 3  # was 5 — points needed for one special use
 var current_meter := 0
 
 # ========== SPECIAL ==========
@@ -277,7 +309,7 @@ func _physics_process(delta: float) -> void:
 	var jump_consumed = _handle_invulnerability(delta)
 	_handle_input_buffers(jump_pressed, dash_pressed, grounded)
 	_handle_dash_start(input_x, input_y)
-	_handle_attack_start(attack_pressed)
+	_handle_attack_start(attack_pressed, input_y)
 	_handle_parry_start(parry_pressed)
 	_handle_special_start(special_pressed)
 	_handle_checkpoint(grounded)
@@ -301,9 +333,99 @@ func _physics_process(delta: float) -> void:
 
 	sprite.flip_h = facing_direction == -1
 	_update_animation()
+	_update_attack_hitboxes()
 	apply_corner_correction(delta, input_x)
 	_handle_hazard_overlap()
 	_apply_movement(delta)
+
+
+# Placeholder, no-animation version: the hitbox is simply active for the
+# entire ATTACKING/SPECIAL window (attack_duration/special_duration) rather
+# than a smaller "active frames" sub-window within it — matches the current
+# "no new animation yet" scope. Flips to face facing_direction every frame,
+# same pattern melee_ground_enemy.gd uses for its raycasts.
+# Sizes/centers a hitbox's preview ColorRect off its CollisionShape2D's actual
+# RectangleShape2D, in the shape's own local space (Visual is a child of the
+# CollisionShape2D, so it needs no knowledge of the shape's position offset —
+# only its size). Silently no-ops for a non-rectangle shape rather than
+# erroring, since not every hitbox is guaranteed to stay a rectangle forever.
+func _sync_hitbox_visual_to_shape(shape: CollisionShape2D, visual: ColorRect) -> void:
+	var rect_shape := shape.shape as RectangleShape2D
+	if rect_shape == null:
+		return
+	visual.position = -rect_shape.size / 2.0
+	visual.size = rect_shape.size
+
+
+func _update_attack_hitboxes() -> void:
+	var attacking := has_flag(Flag.ATTACKING)
+	attack_hitbox_shape.disabled = not attacking
+	attack_hitbox_visual.visible = attacking
+	# Positioned off attack_direction (locked in at swing start, see
+	# _handle_attack_start) rather than always in front — an up/down attack
+	# sits above/below the player instead of horizontally.
+	#
+	# Also rotated 90 degrees for up/down, not just repositioned — the hitbox
+	# rotates as a whole (Area2D -> its CollisionShape2D -> its Visual all
+	# inherit the rotation), so a rectangle that isn't a perfect square still
+	# reaches correctly along the swing's actual axis instead of always
+	# keeping its horizontal-swing orientation stretched the wrong way.
+	if attack_direction == Vector2.UP:
+		attack_hitbox.position = Vector2(0.0, -attack_hitbox_vertical_offset)
+		attack_hitbox.rotation = deg_to_rad(90.0)
+	elif attack_direction == Vector2.DOWN:
+		attack_hitbox.position = Vector2(0.0, attack_hitbox_vertical_offset)
+		attack_hitbox.rotation = deg_to_rad(90.0)
+	else:
+		attack_hitbox.position = Vector2(attack_hitbox_horizontal_offset * facing_direction, 0.0)
+		attack_hitbox.rotation = 0.0
+	# Knock enemies whichever way this swing is actually aimed, not just
+	# away from wherever the hitbox happens to be sitting — see
+	# DamageHitbox.knockback_direction_override / enemy.gd's hurtbox handler.
+	attack_hitbox.knockback_direction_override = attack_direction
+
+	var specialing := has_flag(Flag.SPECIAL)
+	special_hitbox_shape.disabled = not specialing
+	special_hitbox_visual.visible = specialing
+	special_hitbox.position.x = absf(special_hitbox.position.x) * facing_direction
+	special_hitbox.knockback_direction_override = Vector2(facing_direction, 0.0)
+
+
+# AttackHitbox is normally just a passive DamageHitbox payload (enemies find
+# it via their own Hurtbox, same as always) — but it's ALSO set to actively
+# monitor two other layers itself, purely so the player side knows a hit
+# landed without enemy.gd/hazard tiles needing to call back into player.gd:
+# EnemyHurtbox (area, this signal) and PogoSurface (opt-in hazard tag —
+# area here for hand-placed Area2D hazards, or body_entered below for
+# TileMapLayer-painted ones like DamageArea's spike tiles). Only an actual
+# EnemyHurtbox hit banks meter; PogoSurface hits still bounce/recoil but
+# don't build toward special — see METER comment near the exports above.
+func _on_attack_hitbox_area_entered(area: Area2D) -> void:
+	if area.collision_layer & ENEMY_HURTBOX_LAYER:
+		current_meter = mini(current_meter + 1, max_meter)
+	_apply_attack_hit_recoil()
+
+
+# PogoSurface-tagged hazards that collide as a body rather than an area —
+# TileMapLayer physics (e.g. DamageArea's spike tiles) work this way. Not
+# every hazard needs to be pogoable (see project.godot's PogoSurface layer
+# comment / DamageArea's TileSet collision_layer) — a hazard that only has
+# the base Hazard layer and not PogoSurface simply never reaches here at
+# all, since it's outside AttackHitbox's collision_mask. That's the
+# mechanism for "some hazards shouldn't be pogoable, like Hollow Knight's
+# vines" — tag the pogoable ones, leave the rest untagged.
+func _on_attack_hitbox_body_entered(_body: Node) -> void:
+	_apply_attack_hit_recoil()
+
+
+func _apply_attack_hit_recoil() -> void:
+	if attack_direction == Vector2.DOWN:
+		# Pogo bounce instead of the small opposite-direction recoil below —
+		# reuses jump_velocity directly ("around the same as a jump") rather
+		# than a second near-duplicate tunable.
+		velocity.y = jump_velocity
+	else:
+		velocity += -attack_direction * attack_recoil_force
 
 
 func _update_animation() -> void:
@@ -383,12 +505,23 @@ func _handle_dash_start(input_x: float, _input_y: float) -> void:
 	sprite.play("dash", dash_animation_speed_mult)
 
 
-func _handle_attack_start(attack_pressed: bool) -> void:
+func _handle_attack_start(attack_pressed: bool, input_y: float) -> void:
 	if not attack_pressed or attack_cooldown_timer > 0.0 or has_flag(Flag.ATTACKING):
 		return
 
 	if has_flag(Flag.HURT | Flag.DEAD):
 		return
+
+	# Direction is locked in for the whole swing at the moment it starts
+	# (matches facing_direction already locking during ATTACKING) — holding
+	# up/down decides an up/down attack, otherwise it's the normal
+	# horizontal swing toward facing_direction.
+	if input_y < -0.5:
+		attack_direction = Vector2.UP
+	elif input_y > 0.5:
+		attack_direction = Vector2.DOWN
+	else:
+		attack_direction = Vector2(facing_direction, 0.0)
 
 	# Attacking is allowed to overlap a dash (dash-slash) — it no longer
 	# needs to check or touch the DASHING flag to coexist with it.
@@ -419,7 +552,7 @@ func _handle_special_start(special_pressed: bool) -> void:
 	if has_flag(Flag.HURT | Flag.DEAD | Flag.DASHING | Flag.ATTACKING | Flag.PARRYING):
 		return
 
-	current_meter = 0
+	current_meter = 0  # one use per full bank of max_meter charges, not spendable individually
 	set_flag(Flag.SPECIAL, true)
 	special_state_timer = special_duration
 
@@ -496,7 +629,12 @@ func _handle_normal_movement(input_x: float, grounded: bool, delta: float, was_d
 	var accel := acceleration if grounded else air_acceleration
 	var fric := friction if grounded else air_friction
 
-	if direction != 0.0:
+	# Facing (and by extension the sprite flip + AttackHitbox/SpecialHitbox
+	# direction, both driven off facing_direction) locks for the duration of
+	# an attack — movement itself is untouched below, so holding the
+	# opposite direction still walks you backward, it just doesn't spin the
+	# swing around mid-attack.
+	if direction != 0.0 and not has_flag(Flag.ATTACKING):
 		facing_direction = int(sign(direction))
 
 	var max_spd := max_speed if grounded else max_air_speed
@@ -914,17 +1052,16 @@ func _on_parry_success(source_hitbox: Area2D = null) -> void:
 
 	current_meter = mini(current_meter + 1, max_meter)
 
-	# Interim design: real enemies have no attacks/telegraphs to parry yet
-	# (contact damage only), so a successful parry just outright kills
-	# whatever touched us, rather than the eventual "stagger + real damage"
-	# behavior planned once enemies get actual attacks (TODO Phase 4 §10).
+	# No longer an outright kill (that was an interim rule for when enemies
+	# had no real attacks/telegraphs to parry) — now deals flat chip damage
+	# like a weak hit, per current balance: enemies at 3 HP, parry at 0.5.
 	# source_hitbox is the enemy's passive DamageHitbox Area2D — its direct
 	# parent is always the Enemy node itself (same assumption enemy.gd's own
 	# _ready() makes when it does $Hitbox.damage = contact_damage).
 	if source_hitbox:
 		var enemy := source_hitbox.get_parent() as Enemy
 		if enemy:
-			enemy.die()
+			enemy.take_damage(parry_damage)
 
 func _on_hitbox_body_entered(_body: Node2D) -> void:
 	hazard_hit()

@@ -58,7 +58,7 @@ shape = SubResource("CircleShape2D_hitbox")
 
 [node name="Hurtbox" type="Area2D" parent="." unique_id=1301203023]
 collision_layer = 64
-collision_mask = 16
+collision_mask = 48
 
 [node name="HurtboxShape" type="CollisionShape2D" parent="Hurtbox" unique_id=1160497199]
 shape = SubResource("CircleShape2D_hurtbox")

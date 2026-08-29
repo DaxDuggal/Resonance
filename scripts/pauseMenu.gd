@@ -32,6 +32,11 @@ func _on_panflute_pressed() -> void:
 func _on_restart_pressed() -> void:
 	resume()
 	Global.has_checkpoint = false
+	# Reloading the scene alone only resets the checkpoint/player — enemy
+	# deaths persist through WorldState independently of that (see
+	# world_state.gd / Checkpoint.activate()), so without this, restarting
+	# would still show already-killed enemies as gone.
+	WorldState.reset_resettable()
 	get_tree().reload_current_scene()
 
 func _on_quit_pressed() -> void:

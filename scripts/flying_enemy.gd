@@ -33,5 +33,12 @@ func _physics_process(delta: float) -> void:
 	if is_dead:
 		return
 
+	# While stunned, skip the BT entirely and just let physics carry the
+	# knockback — ChasePlayer/Stop hard-set velocity every tick, which would
+	# otherwise cancel a knockback impulse out instantly.
+	if _tick_knockback_stun(delta):
+		move_and_slide()
+		return
+
 	bt_player.update(delta)
 	move_and_slide()

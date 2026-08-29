@@ -2,6 +2,7 @@
 
 [ext_resource type="Script" uid="uid://ctly85ysm2pth" path="res://scripts/player.gd" id="1_g2els"]
 [ext_resource type="Texture2D" uid="uid://dscsola38dru4" path="res://assets/sprites/knight.png" id="2_g2els"]
+[ext_resource type="Script" uid="uid://dano3qelwypyt" path="res://scripts/damage_hitbox.gd" id="3_dmghb"]
 
 [sub_resource type="AtlasTexture" id="AtlasTexture_g2els"]
 atlas = ExtResource("2_g2els")
@@ -262,6 +263,12 @@ height = 9.793738
 radius = 4.284761
 height = 13.466392
 
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_atkhb"]
+size = Vector2(26.320675, 21.423805)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_splhb"]
+size = Vector2(53.15032, 29.97537)
+
 [node name="Player" type="CharacterBody2D" unique_id=1802150828]
 scale = Vector2(1.6336968, 1.6336968)
 collision_layer = 2
@@ -294,9 +301,52 @@ position = Vector2(0, 1.2242174)
 shape = SubResource("CapsuleShape2D_iywne")
 debug_color = Color(0.7587654, 0, 0.27456048, 0.41960785)
 
+[node name="AttackHitbox" type="Area2D" parent="." unique_id=-1293966295]
+position = Vector2(12, 0)
+collision_layer = 32
+collision_mask = 320
+script = ExtResource("3_dmghb")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="AttackHitbox" unique_id=-1293966294]
+position = Vector2(-2.5123158, -0.9181634)
+shape = SubResource("RectangleShape2D_atkhb")
+disabled = true
+debug_color = Color(1, 0.2, 0.2, 0.5)
+
+[node name="Visual" type="ColorRect" parent="AttackHitbox/CollisionShape2D" unique_id=-1293966293]
+visible = false
+offset_left = -4.4876847
+offset_top = -6.081837
+offset_right = 9.512316
+offset_bottom = 7.918163
+color = Color(1, 0.2, 0.2, 0.6)
+
+[node name="SpecialHitbox" type="Area2D" parent="." unique_id=-1293965295]
+position = Vector2(16, 0)
+collision_layer = 32
+collision_mask = 0
+monitoring = false
+script = ExtResource("3_dmghb")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="SpecialHitbox" unique_id=-1293965294]
+position = Vector2(15.575169, -3.9876852)
+shape = SubResource("RectangleShape2D_splhb")
+disabled = true
+debug_color = Color(1, 0.85, 0.1, 0.5)
+
+[node name="Visual" type="ColorRect" parent="SpecialHitbox/CollisionShape2D" unique_id=-1293965293]
+visible = false
+offset_left = -19.53592
+offset_top = -7.0123158
+offset_right = 2.4640808
+offset_bottom = 14.987684
+color = Color(1, 0.85, 0.1, 0.6)
+
 [node name="Timer" type="Timer" parent="." unique_id=1971164965]
 wait_time = 0.2
 
 [connection signal="area_entered" from="Hurtbox" to="." method="_on_hitbox_area_entered"]
 [connection signal="body_entered" from="Hurtbox" to="." method="_on_hitbox_body_entered"]
+[connection signal="area_entered" from="AttackHitbox" to="." method="_on_attack_hitbox_area_entered"]
+[connection signal="body_entered" from="AttackHitbox" to="." method="_on_attack_hitbox_body_entered"]
 [connection signal="timeout" from="Timer" to="." method="_on_timer_timeout"]

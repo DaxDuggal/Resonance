@@ -10,18 +10,25 @@ class_name Enemy
 # Player has rather than sharing one.
 #
 # Enemies live indefinitely for now — no time-based despawn. Death is
-# health-driven (take_damage() -> die() at 0 HP) or instant via a successful
-# player parry (player.gd's _on_parry_success() calls die() directly on
-# whatever enemy owns the DamageHitbox that got parried — an interim rule
-# since enemies have no real attacks to parry yet; once they do, this should
-# probably become a stagger instead of an outright kill, per TODO Phase 4 §10).
+# purely health-driven (take_damage() -> die() at 0 HP) — a successful
+# player parry no longer instant-kills, it just deals parry_damage like any
+# other hit (see player.gd's _on_parry_success()).
+#
+# Health is a float, not an int: a normal attack currently does 1 damage but
+# a parry only does 0.5 (player.gd's attack_damage / parry_damage), so whole
+# numbers alone can't represent every valid health value. Placeholder
+# balance numbers throughout — expect these to change.
 
 @export_group("Health")
-@export var max_health := 2
-var current_health := 2
+@export var max_health := 5.0
+var current_health := 5.0
 
 @export_group("Contact Damage")
 @export var contact_damage := 1
+
+@export_group("Knockback")
+@export var knockback_stun_duration := 0.2  # how long a nonzero knockback hit suppresses this enemy's own movement/AI control — without it, each subclass's behavior tree hard-sets velocity every physics frame and stomps the knockback impulse before it's ever visible
+var knockback_stun_timer := 0.0
 
 var is_dead := false
 
@@ -66,22 +73,55 @@ func _ready() -> void:
 		$Hurtbox.connect("area_entered", Callable(self, "_on_hurtbox_area_entered"))
 
 
-# Placeholder: nothing calls into this yet since the player doesn't have a
-# spatial attack hitbox to detect it with — take_damage() below is ready to
-# be wired up the moment that exists.
-func _on_hurtbox_area_entered(_area: Area2D) -> void:
-	pass
+# Player's AttackHitbox/SpecialHitbox (player.tscn) are DamageHitboxes on
+# the layer named "PlayerHurtbox" in project settings (32) — a mislabel
+# left over from earlier setup (the player's own damage-receiving Hurtbox
+# actually sits on the layer named "PlayerHitbox", 8) but functionally it's
+# just the free slot used for the player's outgoing attack hitboxes; each
+# enemy's own Hurtbox mask includes it (48 = 16 | 32). Not touching the
+# existing Hurtbox's layer to fix the naming mismatch — out of scope here
+# and it works correctly as-is.
+func _on_hurtbox_area_entered(area: Area2D) -> void:
+	if area is DamageHitbox:
+		# Explicit cast, not just the "if area is DamageHitbox" check above —
+		# GDScript's static analyzer doesn't narrow area's declared type from
+		# that check alone, so area.knockback_force etc. below would still
+		# read as Variant and fail to infer the knockback Vector2's type.
+		var hitbox := area as DamageHitbox
+		var knockback_dir: Vector2
+		if hitbox.knockback_direction_override != Vector2.ZERO:
+			# Player attack hitboxes set this to attack_direction — an
+			# up/down attack knocks straight up/down instead of always
+			# sideways-away-from-the-hitbox.
+			knockback_dir = hitbox.knockback_direction_override.normalized()
+		else:
+			var away_x := global_position.x - hitbox.global_position.x
+			var horizontal_dir := signf(away_x) if absf(away_x) > 1.0 else 1.0
+			knockback_dir = Vector2(horizontal_dir, -hitbox.knockback_vertical_ratio).normalized()
+		var knockback := knockback_dir * hitbox.knockback_force
+		take_damage(hitbox.damage, knockback)
 
 
-func take_damage(amount: int, knockback: Vector2 = Vector2.ZERO) -> void:
+func take_damage(amount: float, knockback: Vector2 = Vector2.ZERO) -> void:
 	if is_dead:
 		return
 
-	current_health = maxi(current_health - amount, 0)
+	current_health = maxf(current_health - amount, 0.0)
 	velocity += knockback
+	if knockback != Vector2.ZERO:
+		knockback_stun_timer = knockback_stun_duration
 
-	if current_health <= 0:
+	if current_health <= 0.0:
 		die()
+
+
+# Call from each subclass's _physics_process, before it ticks its own AI —
+# tick the timer and report whether movement/AI should be suppressed this
+# frame so the knockback impulse above actually gets to move the enemy
+# instead of being immediately overwritten.
+func _tick_knockback_stun(delta: float) -> bool:
+	knockback_stun_timer = maxf(knockback_stun_timer - delta, 0.0)
+	return knockback_stun_timer > 0.0
 
 
 func die() -> void:

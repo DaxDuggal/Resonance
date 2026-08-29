@@ -1,0 +1,24 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/hud.gd" id="1_hud"]
+
+[node name="Hud" type="CanvasLayer"]
+script = ExtResource("1_hud")
+
+[node name="HealthLabel" type="Label" parent="."]
+offset_left = 16.0
+offset_top = 16.0
+offset_right = 240.0
+offset_bottom = 40.0
+theme_override_colors/font_color = Color(0, 0, 0, 1)
+theme_override_font_sizes/font_size = 20
+text = "HP: 3 / 3"
+
+[node name="MeterLabel" type="Label" parent="."]
+offset_left = 16.0
+offset_top = 44.0
+offset_right = 240.0
+offset_bottom = 68.0
+theme_override_colors/font_color = Color(0, 0, 0, 1)
+theme_override_font_sizes/font_size = 20
+text = "Special: 0 / 3"
