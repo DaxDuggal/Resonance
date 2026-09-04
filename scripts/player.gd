@@ -2,11 +2,6 @@ extends CharacterBody2D
 class_name Player
 
 
-# Bitflags instead of a single mutually-exclusive state: several of these can
-# be true at once (e.g. ATTACKING while airborne, or HURT while DASHING was
-# just true a moment ago). WALL_JUMPING isn't here — that was never a real
-# state, just wall_jump_control_lock_timer wearing a costume; check the timer
-# directly instead.
 enum Flag {
 	DASHING = 1 << 0,
 	WALL_CLINGING = 1 << 1,
@@ -28,10 +23,8 @@ func set_flag(flag: int, value: bool) -> void:
 	else:
 		flags &= ~flag
 
-# Invulnerability has multiple sources (hit-flash, dash, dash grace) — one
-# place to check all of them instead of repeating the combo everywhere.
 func is_invulnerable() -> bool:
-	return invulnerability_timer > 0.0 or dash_grace_timer > 0.0 or has_flag(Flag.DASHING)
+	return invulnerability_timer > 0.0 or dash_grace_timer > 0.0
 
 func is_airborne() -> bool:
 	return not is_on_floor()
@@ -60,17 +53,10 @@ func _ready() -> void:
 
 	Global.last_safe_position = global_position
 
-	# Keep the hitboxes' damage in sync with the tunable exports above,
-	# rather than hardcoding it twice (same pattern enemy.gd uses to sync
-	# its own Hitbox.damage from contact_damage).
 	attack_hitbox.damage = attack_damage
+	attack_hitbox.knockback_force = attack_knockback_force
 	special_hitbox.damage = special_damage
 
-	# Keep each hitbox's debug-preview ColorRect sized/centered to match its
-	# actual CollisionShape2D — Visual used to be a hand-placed rect with its
-	# own hardcoded offsets, so resizing the real hitbox in the editor (the
-	# thing that actually affects gameplay) silently stopped matching what
-	# you saw on screen. Deriving it here means they can't drift apart again.
 	_sync_hitbox_visual_to_shape(attack_hitbox_shape, attack_hitbox_visual)
 	_sync_hitbox_visual_to_shape(special_hitbox_shape, special_hitbox_visual)
 
@@ -85,49 +71,43 @@ func _ready() -> void:
 			$Hurtbox.connect("area_entered", Callable(self, "_on_hazard_area_entered"))
 		if not $Hurtbox.is_connected("area_exited", Callable(self, "_on_hazard_area_exited")):
 			$Hurtbox.connect("area_exited", Callable(self, "_on_hazard_area_exited"))
-		# Tile-based hazards (TileMapLayer collision) enter as bodies, not
-		# areas — area_entered/exited alone missed them entirely, so
-		# hazard_overlap_count never saw tile spikes as "occupied."
 		if not $Hurtbox.is_connected("body_entered", Callable(self, "_on_hazard_body_entered")):
 			$Hurtbox.connect("body_entered", Callable(self, "_on_hazard_body_entered"))
 		if not $Hurtbox.is_connected("body_exited", Callable(self, "_on_hazard_body_exited")):
 			$Hurtbox.connect("body_exited", Callable(self, "_on_hazard_body_exited"))
 
 
-# ========== HEALTH ==========
-
 @export_group("Health")
 @export var max_health := 3
 var current_health := 3
 var invulnerability_timer := 0.0
-@export var invulnerability_duration := 1.0
+@export var invulnerability_duration := 0.75
 var hit_flash_timer := 0.0
-@export var hit_flash_duration := 0.4  # how long the "hit" animation plays, independent of HURT's action-lock
-@export var knockback_control_lock_time := 0.15  # how long normal movement ignores held input after a knockback, so it doesn't get instantly canceled out — reuses the existing (previously unused) control_lock_timer
+@export var hit_flash_duration := 0.4
+@export var knockback_control_lock_time := 0.15
 
-# ========== ATTACK ==========
-
-const ENEMY_HURTBOX_LAYER := 64  # matches project.godot's layer_7 "EnemyHurtbox" — used to tell an enemy hit apart from a PogoSurface hazard hit when both share AttackHitbox's collision_mask
+const ENEMY_HURTBOX_LAYER := 64  # project.godot layer_7 "EnemyHurtbox"
 
 @export_group("Attack")
 @export var attack_damage := 1
 @export var attack_duration := 0.15
 @export var attack_cooldown := 0.15
-@export var attack_hitbox_horizontal_offset := 12.0  # matches AttackHitbox's original scene position.x
-@export var attack_hitbox_vertical_offset := 14.0  # how far above/below the player the up/down attack hitbox sits
-@export var attack_recoil_force := 40.0  # tiny push opposite the swing direction on a landed hit — not felt for down attacks, see down_attack_bounce below
+@export var attack_hitbox_horizontal_offset := 12.0
+@export var attack_hitbox_vertical_offset := 14.0
+@export var attack_recoil_force := 40.0
+@export var attack_knockback_force := 250.0
 
 var attack_state_timer := 0.0
 var attack_cooldown_timer := 0.0
-var attack_direction := Vector2.RIGHT  # locked in when the swing starts (see _handle_attack_start) — RIGHT/LEFT for a horizontal swing, UP/DOWN for a directional one
-
-# ========== PARRY ==========
+var attack_direction := Vector2.RIGHT
+var _attack_recoil_applied := false
 
 @export_group("Parry")
-@export var parry_window_duration := 0.3  # was 0.2
+@export var parry_window_duration := 0.3
 @export var parry_cooldown := 0.5
 @export var parry_heal_amount := 0.25
-@export var parry_damage := 0.5  # chip damage dealt to the parried enemy (float — enemy health supports fractional values now, see enemy.gd)
+@export var parry_damage := 0.5
+@export var parry_knockback_force := 270.0
 
 var parry_state_timer := 0.0
 var parry_cooldown_timer := 0.0
@@ -136,17 +116,9 @@ var _parry_heal_accumulator := 0.0
 var parry_flash_timer := 0.0
 const PARRY_FLASH_DURATION := 0.15
 
-# ========== METER ==========
-# Each landed attack hit or successful parry adds 1 point directly (no
-# grouping/streak — 3 hits fills it from empty). Special needs the bar
-# completely full (current_meter == max_meter) to use, and draining resets
-# it to 0 — one use per full bank, not spendable in smaller pieces.
-
 @export_group("Meter")
-@export var max_meter := 3  # was 5 — points needed for one special use
+@export var max_meter := 3
 var current_meter := 0
-
-# ========== SPECIAL ==========
 
 @export_group("Special")
 @export var special_damage := 3
@@ -154,35 +126,34 @@ var current_meter := 0
 
 var special_state_timer := 0.0
 
-# ========== MOVEMENT ==========
-
 @export_group("Movement")
-@export var max_speed := 200.0
-@export var max_air_speed := 200.0
+@export var max_speed := 240.0
+@export var max_air_speed := 240.0
 @export var acceleration := 1200.0
-@export var air_acceleration := 1000.0
+@export var air_acceleration := 1150.0
 @export var friction := 1800.0
-@export var air_friction := 900.0  # was 300 — 4x weaker than air_acceleration (1200) meant releasing input in the air drifted for ~0.5s before stopping; raising max_speed on top of that only stretched that drift out further, reading as "slippery" instead of "fast."
-@export var run_jump_speed_boost := 60.0  # max forward push added at takeoff, scaled by how close to max_speed you were the instant you jumped — full push at max speed, none from a standstill. Decays back to max_air_speed via the overspeed-friction handling in _handle_normal_movement, so it reads as a push off the ground rather than a permanent bonus.
+@export var air_friction := 900.0
+@export var run_jump_speed_boost := 70.0
+@export var run_jump_boost_ease_duration := 0.3
 
+var run_jump_boost_timer := 0.0
+var run_jump_boost_start_speed := 0.0
+var run_jump_boost_direction := 0
 
-# ========== JUMP / GRAVITY ==========
 
 @export_group("Jump / Gravity")
-@export var jump_velocity := -320.0  # was -350 — slightly lower peak height, part of trading height for a wider, rounder arc
+@export var jump_velocity := -300.0
 @export var gravity := 980.0
-@export var max_fall_speed := 550.0
-@export var jump_cut_multiplier := 0.4
-@export var apex_threshold := 120.0  # was 30 — the old value only softened gravity for ~2 frames near the peak, which read as a sharp corner (a "V") instead of a rounded top. Widening this stretches that softened zone across a real chunk of the arc.
-@export var apex_gravity_mult := 0.75  # was 0.9 — barely softened gravity before; this makes the widened apex zone actually feel floaty/round instead of just slightly less sharp.
+@export var max_fall_speed := 600.0
+@export var jump_cut_multiplier := 0.6
+@export var apex_threshold := 120.0
+@export var apex_gravity_mult := 0.75
 @export var fall_gravity_mult := 1.2
 
 var jump_cut_disabled_timer := 0.0
 
 const WALL_JUMP_CUT_DISABLE_TIME := 0.2
 
-
-# ========== COYOTE / BUFFER ==========
 
 @export_group("Coyote / Buffer")
 @export var coyote_time := 0.05
@@ -195,22 +166,18 @@ var jump_buffered := false
 var dash_buffer_timer := 0.0
 
 
-# ========== DASH ==========
-# Single horizontal dash. Refills on ground touch or wall-cling entry, plus a
-# small fixed cooldown so a refill can't chain instantly into another dash.
-
 @export_group("Dash")
 @export var dash_speed := 700.0
 @export var dash_duration := 0.07
-@export var dash_cooldown := 0.3  # was 0.16. Widened to a real, felt Silksong-style pause between dashes rather than a near-instant refill.
-@export var dash_land_cooldown := 0.1  # see _handle_coyote_and_dash_refresh: landing on solid ground clamps whatever's left of dash_cooldown_timer down to this (Nine Sols-style short refresh) instead of forcing the full dash_cooldown to elapse — but only ever shortens it, never extends a cooldown that already had less time left.
-@export var dash_grace_time := 0.05  # invuln grace after the dash ends — was 0.2. Deliberately kept SHORTER than dash_cooldown (0.1) now: since grace starts counting down the instant the dash ends and cooldown blocks the next dash for longer than grace lasts, there's a guaranteed real window (cooldown - grace = ~0.05s) after every dash where the player is neither dashing, nor in grace, nor able to dash again yet — genuinely vulnerable. Spamming dash no longer reliably chains invulnerability from one dash straight into the next.
-@export var dash_gravity_mult := 0.75  # slight softening of gravity during the dash's fall — only applies while already falling; an ongoing jump's rise decays at normal gravity so dashing mid-jump doesn't extend the rise
-@export var dash_tail_speed_mult := 0.6  # horizontal speed eases to this fraction by dash end
-@export var dash_start_ease_window := 0.15  # fraction of dash_duration spent ramping up to full speed instead of snapping to it instantly — sharp, but not a single-frame step
-@export var dash_animation_speed_mult := 4.0  # playback speed multiplier for the "dash" animation, so it's visible during the short dash
-@export var dash_ledge_refill_window := 0.3  # last fraction of the dash that checks for a ledge below
-@export var dash_ledge_check_distance := 10.0  # pixels below the player to check
+@export var dash_cooldown := 0.3
+@export var dash_land_cooldown := 0.05
+@export var dash_grace_time := 0.05
+@export var dash_gravity_mult := 0.75
+@export var dash_tail_speed_mult := 0.6
+@export var dash_start_ease_window := 0.15
+@export var dash_animation_speed_mult := 4.0
+@export var dash_ledge_refill_window := 0.3
+@export var dash_ledge_check_distance := 10.0
 
 var dash_available := true
 var dash_direction := Vector2.ZERO
@@ -219,17 +186,14 @@ var dash_cooldown_timer := 0.0
 var dash_grace_timer := 0.0
 var facing_direction := 1
 
-# ========== WALL JUMP BUFFER ==========
 var wall_jump_buffered := false
 var wall_jump_buffer_timer := 0.0
 @export var wall_jump_buffer_time := 0.1
 
 
 var was_on_floor := false
-var was_grounded_for_dash := true  # landing-transition tracker for dash_cooldown refresh, kept separate from was_on_floor above since that's set mid-frame (before _handle_coyote_and_dash_refresh runs) and would already equal the current frame's grounded state by the time it got here
+var was_grounded_for_dash := true
 
-
-# ========== WALL CLING ==========
 
 @export_group("Wall")
 @export var wall_cling_gravity_mult := 0.4
@@ -238,27 +202,16 @@ var was_grounded_for_dash := true  # landing-transition tracker for dash_cooldow
 var is_next_to_wall := false
 var was_wall_clinging := false
 var wall_normal := Vector2.ZERO
-var last_wall_normal := Vector2.ZERO  # kept alive through wall_coyote_time after leaving a wall, since update_wall_detection() zeroes wall_normal the instant contact is lost
+var last_wall_normal := Vector2.ZERO
 
 
-# ========== WALL JUMP ==========
-# Two distinct jumps, chosen by what's held the instant the jump fires:
-#   - Holding toward the wall while clinging: "climb" — small push, full
-#     height, meant for chaining hops up one wall.
-#   - Anything else: "escape" — bigger push, slightly lower arc, meant for
-#     actually launching off the wall.
-# Since clinging requires holding toward the wall, that input is the natural
-# default right up to the jump press, so climb fires most of the time by
-# construction — wall_jump_redirect_window exists to fix that (see below)
-# instead of requiring you to redirect before a jump you haven't taken yet.
-
-@export var wall_jump_push_force := 260.0  # escape jump's horizontal push
-@export var wall_climb_jump_push_force := 140.0  # climb jump's horizontal push — smaller, so normal air control can pull you back into wall range afterward without a scripted yank
+@export var wall_jump_push_force := 260.0
+@export var wall_climb_jump_push_force := 140.0
 @export var wall_jump_control_lock_time := 0.12
 
 @export_group("Wall Jump Forgiveness")
-@export var wall_coyote_time := 0.03  # was on the ground: 0.05. A wall jump still works this long after actually leaving the wall.
-@export var wall_jump_redirect_window := 0.1  # after a wall jump fires, holding the opposite direction within this window swaps in the other jump's trajectory once — the actual fix for "reacting" to a jump you didn't mean to take, instead of needing to have already committed before it happened.
+@export var wall_coyote_time := 0.03
+@export var wall_jump_redirect_window := 0.1
 @export_group("")
 
 var wall_jump_control_lock_timer := 0.0
@@ -270,14 +223,9 @@ var wall_jump_redirect_was_climb := false
 
 var hazard_overlap_count := 0
 
-var velocity_clamp_timer := 0.0
-var velocity_clamp_value := 0.0
-
 @export var respawn_lock_time := 0.4
 var respawn_lock_timer := 0.0
 
-
-# ========== ASSISTS ==========
 
 @export_group("Assists")
 @export var corner_correction_pixels := 4
@@ -305,7 +253,6 @@ func _physics_process(delta: float) -> void:
 		input_x = 0.0
 		input_y = 0.0
 
-	# Execution order matters: dash → jump → movement → gravity
 	var jump_consumed = _handle_invulnerability(delta)
 	_handle_input_buffers(jump_pressed, dash_pressed, grounded)
 	_handle_dash_start(input_x, input_y)
@@ -319,9 +266,9 @@ func _physics_process(delta: float) -> void:
 	_handle_normal_movement(input_x, grounded, delta, was_dashing)
 
 	jump_consumed = _handle_jump_execution(jump_pressed, jump_released, grounded, jump_consumed)
+	_handle_run_jump_boost(input_x, delta)
 
 	_handle_wall_cling_state(input_x, grounded)
-	_handle_velocity_clamp(delta)
 	_handle_gravity(input_x, input_y, grounded, delta)
 
 	was_on_floor = grounded
@@ -339,16 +286,6 @@ func _physics_process(delta: float) -> void:
 	_apply_movement(delta)
 
 
-# Placeholder, no-animation version: the hitbox is simply active for the
-# entire ATTACKING/SPECIAL window (attack_duration/special_duration) rather
-# than a smaller "active frames" sub-window within it — matches the current
-# "no new animation yet" scope. Flips to face facing_direction every frame,
-# same pattern melee_ground_enemy.gd uses for its raycasts.
-# Sizes/centers a hitbox's preview ColorRect off its CollisionShape2D's actual
-# RectangleShape2D, in the shape's own local space (Visual is a child of the
-# CollisionShape2D, so it needs no knowledge of the shape's position offset —
-# only its size). Silently no-ops for a non-rectangle shape rather than
-# erroring, since not every hitbox is guaranteed to stay a rectangle forever.
 func _sync_hitbox_visual_to_shape(shape: CollisionShape2D, visual: ColorRect) -> void:
 	var rect_shape := shape.shape as RectangleShape2D
 	if rect_shape == null:
@@ -361,15 +298,6 @@ func _update_attack_hitboxes() -> void:
 	var attacking := has_flag(Flag.ATTACKING)
 	attack_hitbox_shape.disabled = not attacking
 	attack_hitbox_visual.visible = attacking
-	# Positioned off attack_direction (locked in at swing start, see
-	# _handle_attack_start) rather than always in front — an up/down attack
-	# sits above/below the player instead of horizontally.
-	#
-	# Also rotated 90 degrees for up/down, not just repositioned — the hitbox
-	# rotates as a whole (Area2D -> its CollisionShape2D -> its Visual all
-	# inherit the rotation), so a rectangle that isn't a perfect square still
-	# reaches correctly along the swing's actual axis instead of always
-	# keeping its horizontal-swing orientation stretched the wrong way.
 	if attack_direction == Vector2.UP:
 		attack_hitbox.position = Vector2(0.0, -attack_hitbox_vertical_offset)
 		attack_hitbox.rotation = deg_to_rad(90.0)
@@ -379,9 +307,6 @@ func _update_attack_hitboxes() -> void:
 	else:
 		attack_hitbox.position = Vector2(attack_hitbox_horizontal_offset * facing_direction, 0.0)
 		attack_hitbox.rotation = 0.0
-	# Knock enemies whichever way this swing is actually aimed, not just
-	# away from wherever the hitbox happens to be sitting — see
-	# DamageHitbox.knockback_direction_override / enemy.gd's hurtbox handler.
 	attack_hitbox.knockback_direction_override = attack_direction
 
 	var specialing := has_flag(Flag.SPECIAL)
@@ -391,61 +316,38 @@ func _update_attack_hitboxes() -> void:
 	special_hitbox.knockback_direction_override = Vector2(facing_direction, 0.0)
 
 
-# AttackHitbox is normally just a passive DamageHitbox payload (enemies find
-# it via their own Hurtbox, same as always) — but it's ALSO set to actively
-# monitor two other layers itself, purely so the player side knows a hit
-# landed without enemy.gd/hazard tiles needing to call back into player.gd:
-# EnemyHurtbox (area, this signal) and PogoSurface (opt-in hazard tag —
-# area here for hand-placed Area2D hazards, or body_entered below for
-# TileMapLayer-painted ones like DamageArea's spike tiles). Only an actual
-# EnemyHurtbox hit banks meter; PogoSurface hits still bounce/recoil but
-# don't build toward special — see METER comment near the exports above.
 func _on_attack_hitbox_area_entered(area: Area2D) -> void:
 	if area.collision_layer & ENEMY_HURTBOX_LAYER:
 		current_meter = mini(current_meter + 1, max_meter)
 	_apply_attack_hit_recoil()
 
 
-# PogoSurface-tagged hazards that collide as a body rather than an area —
-# TileMapLayer physics (e.g. DamageArea's spike tiles) work this way. Not
-# every hazard needs to be pogoable (see project.godot's PogoSurface layer
-# comment / DamageArea's TileSet collision_layer) — a hazard that only has
-# the base Hazard layer and not PogoSurface simply never reaches here at
-# all, since it's outside AttackHitbox's collision_mask. That's the
-# mechanism for "some hazards shouldn't be pogoable, like Hollow Knight's
-# vines" — tag the pogoable ones, leave the rest untagged.
 func _on_attack_hitbox_body_entered(_body: Node) -> void:
 	_apply_attack_hit_recoil()
 
 
 func _apply_attack_hit_recoil() -> void:
+	if _attack_recoil_applied:
+		return
+	_attack_recoil_applied = true
+
 	if attack_direction == Vector2.DOWN:
-		# Pogo bounce instead of the small opposite-direction recoil below —
-		# reuses jump_velocity directly ("around the same as a jump") rather
-		# than a second near-duplicate tunable.
 		velocity.y = jump_velocity
 	else:
 		velocity += -attack_direction * attack_recoil_force
 
 
 func _update_animation() -> void:
-	# Taking a hit always interrupts, even mid-dash-animation.
 	if hit_flash_timer > 0.0:
 		if sprite.animation != "hit":
 			sprite.play("hit")
 		return
 
-	# "dash" is a one-shot (non-looping) clip now, and it's started directly
-	# in _handle_dash_start() so it always plays from frame 0. Once it's
-	# running, let it finish on its own — even after Flag.DASHING clears —
-	# instead of getting cut off by idle/run every frame.
 	if sprite.animation == "dash" and sprite.is_playing():
 		return
 
 	var target := "idle"
 	if abs(velocity.x) > 1.0:
-		# No dedicated jump/fall animation yet, so airborne movement also
-		# falls back to run/idle based on horizontal speed.
 		target = "run"
 
 	if sprite.animation != target:
@@ -481,26 +383,17 @@ func _handle_dash_start(input_x: float, _input_y: float) -> void:
 	if dash_buffer_timer <= 0.0 or not dash_available or dash_cooldown_timer > 0.0 or has_flag(Flag.DASHING | Flag.HURT):
 		return
 
-	# Horizontal-only: vertical input is ignored for dash direction.
 	var dash_dir := Vector2(sign(input_x), 0.0) if input_x != 0.0 else Vector2(facing_direction, 0.0)
 
 	facing_direction = int(dash_dir.x)
 
 	dash_direction = dash_dir
 	dash_timer = dash_duration
-	# Only cancel an existing RISE (velocity.y < 0) at dash start — jumping
-	# still arcs and decays normally via gravity right up until the dash
-	# interrupts it, but if that interrupt happens while still ascending,
-	# the dash was otherwise carrying that upward momentum straight through
-	# its whole duration (full gravity only decays it "normally," which
-	# isn't fast enough over a dash's short window to stop it reading as
-	# "the dash goes upward"). Falling velocity is left untouched — a dash
-	# triggered while already falling still carries that momentum in, same
-	# as before.
 	velocity.y = max(velocity.y, 0.0)
 	velocity.x = dash_direction.x * dash_speed
 	dash_available = false
 	dash_buffer_timer = 0.0
+	run_jump_boost_timer = 0.0
 	set_flag(Flag.DASHING, true)
 	sprite.play("dash", dash_animation_speed_mult)
 
@@ -512,10 +405,6 @@ func _handle_attack_start(attack_pressed: bool, input_y: float) -> void:
 	if has_flag(Flag.HURT | Flag.DEAD):
 		return
 
-	# Direction is locked in for the whole swing at the moment it starts
-	# (matches facing_direction already locking during ATTACKING) — holding
-	# up/down decides an up/down attack, otherwise it's the normal
-	# horizontal swing toward facing_direction.
 	if input_y < -0.5:
 		attack_direction = Vector2.UP
 	elif input_y > 0.5:
@@ -523,11 +412,10 @@ func _handle_attack_start(attack_pressed: bool, input_y: float) -> void:
 	else:
 		attack_direction = Vector2(facing_direction, 0.0)
 
-	# Attacking is allowed to overlap a dash (dash-slash) — it no longer
-	# needs to check or touch the DASHING flag to coexist with it.
 	set_flag(Flag.ATTACKING, true)
 	attack_state_timer = attack_duration
 	attack_cooldown_timer = attack_cooldown
+	_attack_recoil_applied = false
 
 
 func _handle_parry_start(parry_pressed: bool) -> void:
@@ -552,7 +440,7 @@ func _handle_special_start(special_pressed: bool) -> void:
 	if has_flag(Flag.HURT | Flag.DEAD | Flag.DASHING | Flag.ATTACKING | Flag.PARRYING):
 		return
 
-	current_meter = 0  # one use per full bank of max_meter charges, not spendable individually
+	current_meter = 0
 	set_flag(Flag.SPECIAL, true)
 	special_state_timer = special_duration
 
@@ -568,19 +456,12 @@ func _handle_dash_state(delta: float, jump_consumed: int) -> int:
 
 	dash_timer -= delta
 
-	# Sharp ramp to full dash_speed over the first dash_start_ease_window
-	# (not an instant step), holds steady, then eases toward
-	# dash_tail_speed_mult over the 2nd half.
 	var t: float = 1.0 - (dash_timer / dash_duration)
 	var start_ease: float = smoothstep(0.0, dash_start_ease_window, t)
 	var tail_ease: float = lerp(1.0, dash_tail_speed_mult, smoothstep(0.5, 1.0, t))
 	var speed_mult: float = start_ease * tail_ease
 	velocity.x = dash_direction.x * dash_speed * speed_mult
 
-	# Near the end of the dash only — not the whole thing, so dashing while
-	# already grounded doesn't just refill instantly. This is what lets a
-	# dash that ends right at/near a ledge keep its charge, without letting
-	# two dashes chain across a gap that should only take one.
 	if not dash_available and dash_timer <= dash_duration * dash_ledge_refill_window:
 		_check_ledge_refill()
 
@@ -610,18 +491,10 @@ func _end_dash() -> void:
 
 
 func _handle_normal_movement(input_x: float, grounded: bool, delta: float, was_dashing: bool) -> void:
-	# was_dashing (captured BEFORE _handle_dash_state ran this frame) covers
-	# the exact frame the dash ends: _end_dash() clears Flag.DASHING mid-frame,
-	# so checking only the live flag here let this function also run on that
-	# same frame right after the dash's own tail-easing already set velocity —
-	# two separate deceleration systems stacking on one frame, which read as
-	# a sudden extra drop right as the dash ended instead of one smooth curve.
 	if has_flag(Flag.DASHING) or was_dashing:
 		return
 
 	if has_flag(Flag.PARRYING) and grounded:
-		# Ground parry is a firm stationary block — no drifting on residual
-		# run momentum or sliding on held input during the window.
 		velocity.x = 0.0
 		return
 
@@ -629,11 +502,6 @@ func _handle_normal_movement(input_x: float, grounded: bool, delta: float, was_d
 	var accel := acceleration if grounded else air_acceleration
 	var fric := friction if grounded else air_friction
 
-	# Facing (and by extension the sprite flip + AttackHitbox/SpecialHitbox
-	# direction, both driven off facing_direction) locks for the duration of
-	# an attack — movement itself is untouched below, so holding the
-	# opposite direction still walks you backward, it just doesn't spin the
-	# swing around mid-attack.
 	if direction != 0.0 and not has_flag(Flag.ATTACKING):
 		facing_direction = int(sign(direction))
 
@@ -646,11 +514,6 @@ func _handle_normal_movement(input_x: float, grounded: bool, delta: float, was_d
 
 	if direction != 0.0:
 		if abs(velocity.x) > max_spd and sign(velocity.x) == sign(direction):
-			# Carrying more speed than max_spd in the held direction (e.g. a
-			# wavedash exiting a dash) — decay it with friction like the
-			# no-input case instead of accel snapping it straight down to
-			# max_spd, which killed the wavedash's momentum ~4x faster
-			# whenever the dash direction was still held.
 			velocity.x = move_toward(velocity.x, target_speed, fric * delta)
 		else:
 			velocity.x = move_toward(velocity.x, target_speed, accel * delta)
@@ -671,26 +534,36 @@ func _handle_jump_execution(_jump_pressed: bool, jump_released: bool, grounded: 
 		if not grounded and coyote_timer > 0.0:
 			coyote_timer = 0.0
 
-		# Push-off boost: scales continuously with how fast you were moving
-		# the instant you left the ground (including via coyote time) — none
-		# from a standstill, full push at max ground speed, proportional
-		# in between. Height is unaffected, only takeoff speed. Decays back
-		# to max_air_speed afterward (see the overspeed-friction branch in
-		# _handle_normal_movement), so it feels like a kick off the ground
-		# settling into your air speed, not a permanent bonus. Skipped during
-		# a dash-jump since dash already owns velocity.x every frame.
 		if not has_flag(Flag.DASHING):
 			var takeoff_speed_ratio: float = clampf(abs(velocity.x) / max_speed, 0.0, 1.0)
-			velocity.x += sign(velocity.x) * run_jump_speed_boost * takeoff_speed_ratio
+			var boost_amount := run_jump_speed_boost * takeoff_speed_ratio
+			if boost_amount > 0.0:
+				run_jump_boost_direction = int(sign(velocity.x)) if velocity.x != 0.0 else facing_direction
+				run_jump_boost_start_speed = abs(velocity.x) + boost_amount
+				run_jump_boost_timer = run_jump_boost_ease_duration
 
-		# Jumping out of an airborne dash no longer cancels DASHING — the dash
-		# keeps driving velocity.x/gravity-softening until it naturally ends,
-		# it just also gets an instant vertical kick. This is what makes the
-		# player actionable mid-dash instead of jump silently doing nothing.
 		set_flag(Flag.WALL_CLINGING, false)
 		return 1
 
 	return jump_consumed
+
+
+func _handle_run_jump_boost(input_x: float, delta: float) -> void:
+	if run_jump_boost_timer <= 0.0:
+		return
+
+	if has_flag(Flag.DASHING | Flag.HURT):
+		run_jump_boost_timer = 0.0
+		return
+
+	if int(sign(input_x)) != run_jump_boost_direction:
+		run_jump_boost_timer = 0.0
+		return
+
+	run_jump_boost_timer = maxf(run_jump_boost_timer - delta, 0.0)
+	var t: float = 1.0 - (run_jump_boost_timer / run_jump_boost_ease_duration)
+	var eased_speed: float = lerp(run_jump_boost_start_speed, max_air_speed, smoothstep(0.0, 1.0, t))
+	velocity.x = run_jump_boost_direction * eased_speed
 
 
 func _handle_wall_cling_state(input_x: float, grounded: bool) -> void:
@@ -700,8 +573,6 @@ func _handle_wall_cling_state(input_x: float, grounded: bool) -> void:
 		(wall_normal.x > 0.0 and input_x < 0.0)
 	)
 
-	# Equivalent to the old "state == NORMAL" gate: nothing else exclusive
-	# is currently happening, including a wall-jump's control-lock window.
 	var locomotion_free := not has_flag(Flag.DASHING | Flag.WALL_CLINGING | Flag.HURT | Flag.DEAD | Flag.ATTACKING | Flag.PARRYING | Flag.SPECIAL) and wall_jump_control_lock_timer <= 0.0
 
 	if not grounded and is_next_to_wall and velocity.y > 0.0 and pushing_into_wall and locomotion_free:
@@ -711,25 +582,8 @@ func _handle_wall_cling_state(input_x: float, grounded: bool) -> void:
 
 
 
-func _handle_velocity_clamp(delta: float) -> void:
-	if velocity_clamp_timer > 0.0:
-		velocity_clamp_timer -= delta
-		if velocity_clamp_timer <= 0.0 and not is_on_floor():
-			if velocity_clamp_value < 0.0 and velocity.y < velocity_clamp_value:
-				velocity.y = velocity_clamp_value
-			elif velocity_clamp_value > 0.0 and velocity.y > velocity_clamp_value:
-				velocity.y = velocity_clamp_value
-
-
 func _handle_gravity(_input_x: float, _input_y: float, grounded: bool, delta: float) -> void:
 	if has_flag(Flag.DASHING):
-		# Vertical velocity carries in from whatever it was before the dash
-		# (fall/jump arc) — gravity keeps acting on it the whole dash instead
-		# of restarting from 0. Softening (dash_gravity_mult) only applies
-		# while already falling (velocity.y >= 0); if you dash mid-jump while
-		# still rising, full gravity applies so the rise decays normally —
-		# otherwise the softened pull was letting an in-progress jump keep
-		# climbing during the dash instead of just gliding through a fall.
 		var dash_grav_mult := dash_gravity_mult if velocity.y >= 0.0 else 1.0
 		velocity.y += gravity * dash_grav_mult * delta
 		return
@@ -757,9 +611,6 @@ func _handle_wall_jump(input_x: float, _jump_pressed: bool, grounded: bool, jump
 	if not wall_jump_buffered or jump_consumed or not wall_available or grounded or has_flag(Flag.DASHING):
 		return jump_consumed
 
-	# last_wall_normal covers the wall_coyote_timer case, where wall_normal
-	# has already been zeroed by update_wall_detection() since contact was
-	# lost a frame or two ago.
 	var effective_wall_normal := wall_normal if is_next_to_wall else last_wall_normal
 	var push_direction := int(sign(effective_wall_normal.x))
 
@@ -778,10 +629,6 @@ func _handle_wall_jump(input_x: float, _jump_pressed: bool, grounded: bool, jump
 		velocity.x = push_direction * wall_jump_push_force
 		velocity.y = jump_velocity * 0.8
 
-	# Redirect window: since clinging requires holding toward the wall, climb
-	# fires by default most of the time — this is what actually lets you
-	# correct that after the fact instead of needing to have redirected
-	# before a jump that hadn't happened yet. See _handle_wall_jump_redirect.
 	wall_jump_redirect_timer = wall_jump_redirect_window
 	wall_jump_redirect_push_direction = push_direction
 	wall_jump_redirect_was_climb = is_climb
@@ -790,6 +637,9 @@ func _handle_wall_jump(input_x: float, _jump_pressed: bool, grounded: bool, jump
 	wall_jump_control_lock_timer = wall_jump_control_lock_time
 
 	wall_jump_buffered = false
+	jump_buffered = false
+	jump_buffer_timer = 0.0
+	run_jump_boost_timer = 0.0
 	set_flag(Flag.WALL_CLINGING, false)
 	coyote_timer = 0.0
 	wall_coyote_timer = 0.0
@@ -805,14 +655,10 @@ func _handle_wall_jump_redirect(input_x: float) -> void:
 		return
 
 	if wall_jump_redirect_was_climb and held_dir == wall_jump_redirect_push_direction:
-		# Was the small climb hop; now holding away from the wall — upgrade
-		# to the full escape jump.
 		velocity.x = wall_jump_redirect_push_direction * wall_jump_push_force
 		velocity.y = jump_velocity * 0.8
 		wall_jump_redirect_timer = 0.0
 	elif not wall_jump_redirect_was_climb and held_dir == -wall_jump_redirect_push_direction:
-		# Was the escape jump; now holding toward the wall — downgrade to
-		# the climb hop.
 		velocity.x = wall_jump_redirect_push_direction * wall_climb_jump_push_force
 		velocity.y = jump_velocity
 		wall_jump_redirect_timer = 0.0
@@ -824,22 +670,12 @@ func _handle_coyote_and_dash_refresh(_input_x: float, _input_y: float, grounded:
 		if not has_flag(Flag.DASHING):
 			dash_available = true
 		if not was_grounded_for_dash:
-			# Just landed. Nine Sols-style short refresh: clamp whatever's
-			# left of dash_cooldown_timer down to dash_land_cooldown instead
-			# of forcing the full dash_cooldown to elapse — but only if that
-			# actually shortens it. A dash taken right before landing (still
-			# has most of the long cooldown left) gets cut down to the short
-			# landing cooldown; a dash taken a while ago (cooldown already
-			# nearly/fully expired) isn't extended back up by landing.
-			# Only fires on the landing frame itself, not continuously, so it
-			# can't be used to keep the cooldown short while just standing.
 			dash_cooldown_timer = minf(dash_cooldown_timer, dash_land_cooldown)
 	else:
 		coyote_timer = tick_timer(coyote_timer, delta)
 
 	was_grounded_for_dash = grounded
 
-	# Refills on entering wall-cling specifically, not any wall touch.
 	if has_flag(Flag.WALL_CLINGING) and not was_wall_clinging:
 		dash_available = true
 
@@ -895,7 +731,6 @@ func _update_timers(delta: float) -> void:
 
 
 func _apply_movement(delta: float) -> void:
-	# Only wall-like hits cut the dash short; floor/ceiling hits fall through to move_and_slide().
 	if has_flag(Flag.DASHING) and velocity.length() > 1.0:
 		var next_pos := global_position + velocity * delta
 		var space = get_world_2d().direct_space_state
@@ -903,11 +738,7 @@ func _apply_movement(delta: float) -> void:
 		params.from = global_position
 		params.to = next_pos
 		params.exclude = [self]
-		# World only — this query has no mask by default, which means it was
-		# treating anything solid (including enemy bodies) as a wall and
-		# cutting the dash short. Dashing already grants invulnerability, so
-		# the dash should pass through enemies, not get stopped by them.
-		params.collision_mask = 1
+		params.collision_mask = 1  # world only — dash is invulnerable, shouldn't be stopped by enemies
 		var hit = space.intersect_ray(params)
 		if hit and hit.has("position"):
 			var hit_normal: Vector2 = hit.get("normal", Vector2.ZERO)
@@ -925,7 +756,12 @@ func _apply_movement(delta: float) -> void:
 				_end_dash()
 				return
 
-	move_and_slide()
+	if has_flag(Flag.DASHING):
+		motion_mode = CharacterBody2D.MOTION_MODE_FLOATING
+		move_and_slide()
+		motion_mode = CharacterBody2D.MOTION_MODE_GROUNDED
+	else:
+		move_and_slide()
 	update_wall_detection()
 
 	if has_flag(Flag.DASHING):
@@ -943,8 +779,6 @@ func _apply_movement(delta: float) -> void:
 	var target_modulate := Color.RED
 	if parry_flash_timer > 0.0:
 		target_modulate = Color.GREEN
-	elif has_flag(Flag.DASHING):
-		target_modulate = Color.CYAN
 	elif has_flag(Flag.PARRYING):
 		target_modulate = Color(1.0, 0.85, 0.2)
 	elif dash_available:
@@ -972,9 +806,6 @@ func update_wall_detection() -> void:
 			last_wall_normal = normal
 			return
 
-	# Just lost contact this frame — start the wall jump's coyote grace.
-	# last_wall_normal keeps the direction available since wall_normal itself
-	# is zeroed above the moment contact is lost.
 	if was_next_to_wall:
 		wall_coyote_timer = wall_coyote_time
 
@@ -1012,15 +843,10 @@ func apply_corner_correction(delta: float, input_x: float) -> void:
 				global_position.x += offset.x
 				return
 
-# ============ Death / Health ==========
+
 func take_damage(amount: int = 1, knockback: Vector2 = Vector2.ZERO, lock_actions: bool = true) -> void:
 	current_health = maxi(current_health - amount, 0)
 	invulnerability_timer = invulnerability_duration
-	# Flag.HURT is the hard action-lock (blocks jump/dash/locomotion — see its
-	# use sites). Reserved for hazards, which respawn you right after anyway.
-	# Enemy contact damage should sting (invuln + hit-flash + a brief
-	# knockback-only control_lock_timer, below) without taking away your
-	# ability to act — getting clipped by an enemy shouldn't freeze you.
 	if lock_actions:
 		set_flag(Flag.HURT, true)
 	hit_flash_timer = hit_flash_duration
@@ -1036,7 +862,10 @@ func take_enemy_damage(amount: int = 1, knockback: Vector2 = Vector2.ZERO, sourc
 	if is_invulnerable():
 		return
 
-	if has_flag(Flag.PARRYING):
+	var hitbox := source_hitbox as DamageHitbox
+	var parryable := hitbox == null or hitbox.is_parryable
+
+	if has_flag(Flag.PARRYING) and parryable:
 		_on_parry_success(source_hitbox)
 		return
 
@@ -1052,34 +881,23 @@ func _on_parry_success(source_hitbox: Area2D = null) -> void:
 
 	current_meter = mini(current_meter + 1, max_meter)
 
-	# No longer an outright kill (that was an interim rule for when enemies
-	# had no real attacks/telegraphs to parry) — now deals flat chip damage
-	# like a weak hit, per current balance: enemies at 3 HP, parry at 0.5.
-	# source_hitbox is the enemy's passive DamageHitbox Area2D — its direct
-	# parent is always the Enemy node itself (same assumption enemy.gd's own
-	# _ready() makes when it does $Hitbox.damage = contact_damage).
 	if source_hitbox:
 		var enemy := source_hitbox.get_parent() as Enemy
 		if enemy:
-			enemy.take_damage(parry_damage)
+			var knockback := Vector2.ZERO
+			if parry_knockback_force > 0.0:
+				var away_x := enemy.global_position.x - global_position.x
+				var horizontal_dir := signf(away_x) if absf(away_x) > 1.0 else float(facing_direction)
+				knockback = Vector2(horizontal_dir, -0.3) * parry_knockback_force
+			enemy.take_damage(parry_damage, knockback)
 
 func _on_hitbox_body_entered(_body: Node2D) -> void:
 	hazard_hit()
 
 func _on_hitbox_area_entered(area: Area2D) -> void:
-	# DamageHitbox (enemy contact, future projectiles, etc.) just carries a
-	# damage value and goes through take_enemy_damage() — parry-aware, no
-	# forced respawn. Anything else hitting this layer (generic hazards) is
-	# still the harsher hazard_hit()/respawn path.
 	if area is DamageHitbox:
 		var knockback := Vector2.ZERO
 		if area.knockback_force > 0.0:
-			# Horizontal-dominant on purpose: a raw normalized direction
-			# between the two positions can end up mostly vertical depending
-			# on exactly where the hitboxes overlapped, which read as "sent
-			# me up" instead of "pushed away." Sign of the x-difference plus
-			# a smaller fixed vertical pop is what actually feels like a
-			# sideways shove regardless of contact geometry.
 			var away_x := global_position.x - area.global_position.x
 			var horizontal_dir := signf(away_x) if absf(away_x) > 1.0 else float(-facing_direction)
 			knockback = Vector2(horizontal_dir, -area.knockback_vertical_ratio) * area.knockback_force
@@ -1096,10 +914,6 @@ func hazard_hit() -> void:
 	if not has_flag(Flag.DEAD):
 		respawn()
 
-# The enter signals only fire once, on first contact — if invulnerability
-# was still active at that exact moment (e.g. dashing into a hazard), the
-# hit was silently swallowed and nothing re-checked afterward. This catches
-# hazards the player is still standing in the instant invulnerability ends.
 func _handle_hazard_overlap() -> void:
 	if hazard_overlap_count > 0 and not is_invulnerable():
 		hazard_hit()
@@ -1144,10 +958,6 @@ func tick_timer(time_value: float, delta: float) -> float:
 	return maxf(time_value - delta, 0.0)
 
 func _on_hazard_area_entered(_area: Area2D) -> void:
-	# DamageHitbox contact (enemies, projectiles) is already fully handled,
-	# parry-aware, by _on_hitbox_area_entered() above — it must NOT also
-	# count here, or a parried hit still gets silently punished a frame
-	# later by _handle_hazard_overlap()'s non-parry-aware hazard_hit().
 	if _area is DamageHitbox:
 		return
 	hazard_overlap_count += 1

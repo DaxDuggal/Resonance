@@ -136,6 +136,7 @@ special={
 [limbo_ai]
 
 behavior_tree/user_task_dirs=PackedStringArray("res://scripts/bt")
+behavior_tree/favorite_tasks=PackedStringArray("BTComment", "BTDynamicSelector", "BTDynamicSequence")
 
 [physics]
 

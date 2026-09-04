@@ -1,14 +1,17 @@
-[gd_scene format=3 uid="uid://i1ecjohjwdey"]
+[gd_scene format=3 uid="uid://5yibgstxx4ws"]
 
 [ext_resource type="Script" uid="uid://d2oxaledp4vio" path="res://scripts/flying_enemy.gd" id="1"]
 [ext_resource type="Script" uid="uid://dano3qelwypyt" path="res://scripts/damage_hitbox.gd" id="2"]
-[ext_resource type="Script" uid="uid://jcrd2bwcq7sm" path="res://scripts/bt/bt_attack_ready.gd" id="3_1bv63"]
 [ext_resource type="Script" uid="uid://wo30m1ykm0l" path="res://scripts/bt/bt_player_in_range.gd" id="3_dyvm4"]
 [ext_resource type="Script" uid="uid://d4m5o48073ue6" path="res://scripts/bt/bt_chase_player.gd" id="4_ms2v3"]
-[ext_resource type="Script" uid="uid://co71w6mqr84kg" path="res://scripts/bt/bt_start_attack.gd" id="4_x4wu4"]
 [ext_resource type="Script" uid="uid://c7l0bikxln86q" path="res://scripts/bt/bt_stop.gd" id="5_1bv63"]
+[ext_resource type="Script" path="res://scripts/bt/bt_attack.gd" id="6_attack"]
+[ext_resource type="Resource" path="res://resources/attack_profiles/skydiver_dive.tres" id="7_atkprof"]
 
 [sub_resource type="CircleShape2D" id="CircleShape2D_body"]
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_hitbox"]
+radius = 13.0
 
 [sub_resource type="CircleShape2D" id="CircleShape2D_hurtbox"]
 
@@ -17,54 +20,54 @@ size = Vector2(16, 16)
 
 [sub_resource type="BlackboardPlan" id="BlackboardPlan_c4a5w"]
 
-[sub_resource type="BTCondition" id="BTCondition_iapyh"]
-script = ExtResource("3_1bv63")
-
-[sub_resource type="BTAction" id="BTAction_uekyw"]
-script = ExtResource("4_x4wu4")
-
-[sub_resource type="BTDynamicSequence" id="BTDynamicSequence_2yokl"]
-children = [SubResource("BTCondition_iapyh"), SubResource("BTAction_uekyw")]
-
-[sub_resource type="BTCondition" id="BTCondition_2iyoq"]
+[sub_resource type="BTCondition" id="BTCondition_x4wu4"]
 script = ExtResource("3_dyvm4")
 
-[sub_resource type="BTAction" id="BTAction_aat01"]
+[sub_resource type="BTAction" id="BTAction_iapyh"]
 script = ExtResource("4_ms2v3")
 
-[sub_resource type="BTDynamicSequence" id="BTDynamicSequence_k8ha7"]
-children = [SubResource("BTCondition_2iyoq"), SubResource("BTAction_aat01")]
+[sub_resource type="BTDynamicSequence" id="BTSequence_lrtul"]
+children = [SubResource("BTCondition_x4wu4"), SubResource("BTAction_iapyh")]
 
-[sub_resource type="BTAction" id="BTAction_rv46u"]
+[sub_resource type="BTAction" id="BTAction_uekyw"]
 script = ExtResource("5_1bv63")
 
-[sub_resource type="BTDynamicSelector" id="BTDynamicSelector_p1h7j"]
-children = [SubResource("BTDynamicSequence_2yokl"), SubResource("BTDynamicSequence_k8ha7"), SubResource("BTAction_rv46u")]
+[sub_resource type="BTAction" id="BTAction_attack"]
+script = ExtResource("6_attack")
+
+[sub_resource type="BTDynamicSelector" id="BTSelector_dyvm4"]
+children = [SubResource("BTAction_attack"), SubResource("BTSequence_lrtul"), SubResource("BTAction_uekyw")]
 
 [sub_resource type="BehaviorTree" id="BehaviorTree_kvpfn"]
 blackboard_plan = SubResource("BlackboardPlan_c4a5w")
-root_task = SubResource("BTDynamicSelector_p1h7j")
+root_task = SubResource("BTSelector_dyvm4")
 
 [sub_resource type="BlackboardPlan" id="BlackboardPlan_fgwew"]
 
 [node name="FlyingEnemy" type="CharacterBody2D" unique_id=197813680]
 collision_layer = 4
 script = ExtResource("1")
+attack_profile = ExtResource("7_atkprof")
 
 [node name="Placeholder" type="Polygon2D" parent="." unique_id=1990793092]
 color = Color(0.2, 0.3, 0.85, 1)
 polygon = PackedVector2Array(0, -10, 10, 0, 0, 10, -10, 0)
 
-[node name="EnemyBody" type="Area2D" parent="." unique_id=1568690567]
-collision_layer = 4
-collision_mask = 3
-
-[node name="CollisionShape2D" type="CollisionShape2D" parent="EnemyBody" unique_id=1965105304]
+[node name="BodyShape" type="CollisionShape2D" parent="." unique_id=1965105304]
 shape = SubResource("CircleShape2D_body")
+
+[node name="Hitbox" type="Area2D" parent="." unique_id=518496068]
+collision_layer = 16
+collision_mask = 0
+monitoring = false
+script = ExtResource("2")
+
+[node name="HitboxShape" type="CollisionShape2D" parent="Hitbox" unique_id=1808077828]
+shape = SubResource("CircleShape2D_hitbox")
 
 [node name="Hurtbox" type="Area2D" parent="." unique_id=1301203023]
 collision_layer = 64
-collision_mask = 48
+collision_mask = 32
 
 [node name="HurtboxShape" type="CollisionShape2D" parent="Hurtbox" unique_id=1160497199]
 shape = SubResource("CircleShape2D_hurtbox")
@@ -79,6 +82,10 @@ script = ExtResource("2")
 shape = SubResource("RectangleShape2D_attackhitbox")
 disabled = true
 debug_color = Color(1, 0.2, 0.2, 0.5)
+
+[node name="VisibleOnScreenEnabler2D" type="VisibleOnScreenEnabler2D" parent="."]
+enable_mode = 0
+rect = Rect2(-20, -20, 40, 40)
 
 [node name="BTPlayer" type="BTPlayer" parent="." unique_id=1442206898]
 behavior_tree = SubResource("BehaviorTree_kvpfn")

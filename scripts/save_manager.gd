@@ -26,6 +26,14 @@ func _load_on_boot() -> void:
 		return
 
 	_apply_slot_data(cfg)
+	call_deferred("_goto_saved_scene")
+
+
+func _goto_saved_scene() -> void:
+	var current_scene := get_tree().current_scene
+	if current_scene and current_scene.scene_file_path == Global.last_checkpoint_scene:
+		return
+	get_tree().change_scene_to_file(Global.last_checkpoint_scene)
 
 
 func _notification(what: int) -> void:

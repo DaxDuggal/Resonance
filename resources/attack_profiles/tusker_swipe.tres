@@ -1,0 +1,12 @@
+[gd_resource type="Resource" script_class="AttackProfile" format=3 uid="uid://vv22rp6u6xfv"]
+
+[ext_resource type="Script" uid="uid://dhw4rwgiuj12e" path="res://scripts/attack_profile.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+startup_duration = 0.55
+active_duration = 0.25
+recovery_duration = 0.4
+cooldown = 0.6
+damage = 1
+knockback_force = 260.0

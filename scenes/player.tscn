@@ -272,6 +272,7 @@ size = Vector2(53.15032, 29.97537)
 [node name="Player" type="CharacterBody2D" unique_id=1802150828]
 scale = Vector2(1.6336968, 1.6336968)
 collision_layer = 2
+collision_mask = 5
 script = ExtResource("1_g2els")
 
 [node name="AnimatedSprite2D" type="AnimatedSprite2D" parent="." unique_id=1236738832]
@@ -281,13 +282,13 @@ sprite_frames = SubResource("SpriteFrames_gee14")
 animation = &"dash"
 autoplay = "idle"
 
-[node name="PlayerBody2" type="CollisionShape2D" parent="." unique_id=567579935]
+[node name="CollisionShape2D" type="CollisionShape2D" parent="." unique_id=567579935]
 position = Vector2(0, 3.6726522)
 rotation = 1.5707964
 scale = Vector2(0.7439287, 0.7439287)
 shape = SubResource("CapsuleShape2D_v5p3a")
 
-[node name="PlayerBody3" type="CollisionShape2D" parent="." unique_id=361058995]
+[node name="CollisionShape2D2" type="CollisionShape2D" parent="." unique_id=361058995]
 position = Vector2(0.61210877, -3.0605435)
 rotation = 1.5707964
 shape = SubResource("CapsuleShape2D_qhqgy")
