@@ -90,3 +90,5 @@ rect = Rect2(-20, -20, 40, 40)
 [node name="BTPlayer" type="BTPlayer" parent="." unique_id=1442206898]
 behavior_tree = SubResource("BehaviorTree_kvpfn")
 blackboard_plan = SubResource("BlackboardPlan_fgwew")
+
+[connection signal="screen_exited" from="VisibleOnScreenEnabler2D" to="." method="_clear_aggro"]

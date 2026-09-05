@@ -151,7 +151,7 @@ root_task = SubResource("BTSelector_txqum")
 collision_layer = 4
 collision_mask = 3
 script = ExtResource("1")
-max_health = 8.0
+max_health = 5.0
 contact_damage = 2
 attack_profile = ExtResource("15_atkprof")
 
@@ -207,3 +207,5 @@ rect = Rect2(-32, -55, 64, 60)
 [node name="BTPlayer" type="BTPlayer" parent="." unique_id=1868362994]
 behavior_tree = SubResource("BehaviorTree_ts7x6")
 blackboard_plan = SubResource("BlackboardPlan_cvbgm")
+
+[connection signal="screen_exited" from="VisibleOnScreenEnabler2D" to="." method="_clear_aggro"]

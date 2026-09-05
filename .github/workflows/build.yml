@@ -26,7 +26,6 @@ jobs:
             export-preset: Windows Desktop
             export-path: build/windows/Resonance.exe
             export-folder: build/windows
-            package-path: dist/Resonance-Windows.zip
 
           - name: Linux
             os: ubuntu-22.04
@@ -34,7 +33,6 @@ jobs:
             export-preset: Linux
             export-path: build/linux/Resonance.x86_64
             export-folder: build/linux
-            package-path: dist/Resonance-Linux.tar.gz
 
     steps:
       - name: Checkout repository
@@ -59,27 +57,9 @@ jobs:
             --export-release "${{ matrix.export-preset }}" \
             "${{ matrix.export-path }}"
 
-      - name: Package Windows build
-        if: matrix.platform == 'windows'
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force -Path "dist" | Out-Null
-          Compress-Archive `
-            -Path "${{ matrix.export-folder }}/*" `
-            -DestinationPath "${{ matrix.package-path }}" `
-            -Force
-
-      - name: Package Linux build
-        if: matrix.platform == 'linux'
-        shell: bash
-        run: |
-          mkdir -p dist
-          tar -czf "${{ matrix.package-path }}" \
-            -C "${{ matrix.export-folder }}" .
-
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
           name: Resonance-${{ matrix.name }}
-          path: ${{ matrix.package-path }}
+          path: ${{ matrix.export-folder }}
           if-no-files-found: error

@@ -3,7 +3,6 @@ class_name FlyingEnemy
 
 @export_group("Movement")
 @export var move_speed := 130.0
-@export var detection_range := 350.0
 @export var hover_height := 80.0
 @export var gravity := 150.0
 @export var hop_impulse := 90.0
@@ -38,6 +37,7 @@ func _physics_process(delta: float) -> void:
 	if is_dead:
 		return
 
+	_update_awareness(delta)
 	_tick_attack(delta)
 
 	if _tick_knockback_stun(delta):
@@ -65,14 +65,15 @@ func _physics_process(delta: float) -> void:
 # height is the player's height (plus hover_height) when chasing, or wherever
 # it was when it last had a target (patrol altitude) when idle.
 func _apply_flight(delta: float) -> void:
-	var in_range := Global.player != null and global_position.distance_to(Global.player.global_position) <= detection_range
-
-	if in_range:
+	if _player_in_range():
 		var direction_x := signf(Global.player.global_position.x - global_position.x)
 		velocity.x = move_toward(velocity.x, direction_x * move_speed, move_speed * 4.0 * delta)
 		_spawn_y = Global.player.global_position.y - hover_height
 	else:
 		velocity.x = move_toward(velocity.x, 0.0, move_speed * 4.0 * delta)
+
+	if absf(velocity.x) > 5.0:
+		facing_direction = signi(velocity.x)
 
 	hop_timer = maxf(hop_timer - delta, 0.0)
 	if global_position.y > _spawn_y and hop_timer <= 0.0:
@@ -105,12 +106,14 @@ func _track_attack_end() -> void:
 	_was_attacking = attacking_now
 
 
+func _player_in_range() -> bool:
+	return is_aware_of_player
+
+
 func _is_attack_ready() -> bool:
 	if not can_start_attack():
 		return false
-	if not Global.player:
-		return false
-	if global_position.distance_to(Global.player.global_position) > detection_range:
+	if not _player_in_range():
 		return false
 	var to_player := Global.player.global_position - global_position
 	if to_player.y < dive_trigger_min_height:

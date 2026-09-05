@@ -8,7 +8,6 @@ class_name MeleeGroundEnemy
 @export var jump_velocity := -280.0
 
 @export_group("AI")
-@export var detection_range := 400.0
 @export var obstacle_check_height := 32.0
 @export var jump_cooldown := 0.4
 @export_group("AI/Turn Lock")
@@ -23,7 +22,6 @@ class_name MeleeGroundEnemy
 @export var lunge_below_tolerance := 40.0
 @export var retreat_speed := 70.0
 
-var facing_direction := 1
 var jump_cooldown_timer := 0.0
 var turn_lock_timer := 0.0
 var _lunge_launched := false
@@ -43,6 +41,8 @@ func _ready() -> void:
 func _physics_process(delta: float) -> void:
 	if is_dead:
 		return
+
+	_update_awareness(delta)
 
 	jump_cooldown_timer = maxf(jump_cooldown_timer - delta, 0.0)
 	turn_lock_timer = maxf(turn_lock_timer - delta, 0.0)
@@ -146,7 +146,7 @@ func _apply_gravity(delta: float) -> void:
 
 
 func _player_in_range() -> bool:
-	return Global.player and global_position.distance_to(Global.player.global_position) <= detection_range
+	return is_aware_of_player
 
 
 func _update_facing() -> void:
