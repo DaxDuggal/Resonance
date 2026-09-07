@@ -26,3 +26,25 @@ func get_max_health() -> int:
 	if player:
 		return player.max_health
 	return 3
+
+
+# ---------- Hitstop ----------
+# Freezes gameplay motion for `duration` real seconds (Engine.time_scale
+# set to 0, so physics/animation don't advance) without pausing _process
+# callbacks themselves — input polling and flag-setting code (like the
+# player's parry) keep running every real frame, they just see delta ~= 0.
+# That's what lets a parry pressed *during* a hitstop still register.
+# Counter-based so overlapping calls (e.g. two hits landing back to back)
+# don't have the shorter one prematurely un-freeze the longer one.
+var _hitstop_count := 0
+
+func hitstop(duration: float) -> void:
+	if duration <= 0.0:
+		return
+	_hitstop_count += 1
+	Engine.time_scale = 0.0
+	var timer := get_tree().create_timer(duration, true, false, true)
+	await timer.timeout
+	_hitstop_count = maxi(_hitstop_count - 1, 0)
+	if _hitstop_count == 0:
+		Engine.time_scale = 1.0

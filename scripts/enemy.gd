@@ -40,9 +40,10 @@ var attack_cooldown_timer := 0.0
 @export_group("Awareness")
 @export var sight_range := 350.0
 @export var sight_angle_degrees := 100.0
-@export var close_range_awareness := 40.0
+@export var close_range_awareness := 70.0
 @export var awareness_memory_time := 0.6
 @export var aggro_leash_range := 900.0
+@export var debug_show_awareness := true
 
 var facing_direction := 1
 var is_aware_of_player := false
@@ -150,6 +151,45 @@ func _update_awareness(delta: float) -> void:
 		else:
 			is_aware_of_player = true
 
+	if debug_show_awareness:
+		queue_redraw()
+
+
+# Debug-only visualization of the sight cone (yellow, turns red once
+# aggro'd), the point-blank radius (white), and the aggro leash range while
+# aggro'd (red outline). Toggle debug_show_awareness off per-enemy, or flip
+# the default above, once you're done tuning these values.
+func _draw() -> void:
+	if not debug_show_awareness:
+		return
+
+	var cone_color := Color(1.0, 0.15, 0.15, 0.18) if has_aggro else Color(1.0, 0.9, 0.2, 0.18)
+	var facing_vec := Vector2(float(facing_direction), 0.0)
+	var half_angle := deg_to_rad(sight_angle_degrees * 0.5)
+	var segments := 20
+	var points := PackedVector2Array()
+	points.append(Vector2.ZERO)
+	var space := get_world_2d().direct_space_state
+	for i in range(segments + 1):
+		var t: float = lerp(-half_angle, half_angle, float(i) / float(segments))
+		var dir := facing_vec.rotated(t)
+		var reach := sight_range
+		var params := PhysicsRayQueryParameters2D.new()
+		params.from = global_position
+		params.to = global_position + dir * sight_range
+		params.collision_mask = 1  # World only — same mask the real sight check uses
+		params.exclude = [self]
+		var hit := space.intersect_ray(params)
+		if hit:
+			reach = global_position.distance_to(hit.position)
+		points.append(dir * reach)
+	draw_colored_polygon(points, cone_color)
+
+	draw_arc(Vector2.ZERO, close_range_awareness, 0.0, TAU, 24, Color(1.0, 1.0, 1.0, 0.6), 2.0)
+
+	if has_aggro:
+		draw_arc(Vector2.ZERO, aggro_leash_range, 0.0, TAU, 48, Color(1.0, 0.2, 0.2, 0.4), 2.0)
+
 
 # Fully drops aggro/awareness — wired to the agent's own VisibleOnScreenEnabler2D
 # "screen_exited" signal, so going off-screen currently resets tracking rather
@@ -169,12 +209,14 @@ func _can_see_player() -> bool:
 	if distance > sight_range:
 		return false
 
-	if distance <= close_range_awareness:
-		return true
-
-	var facing_vec := Vector2(float(facing_direction), 0.0)
-	if rad_to_deg(absf(facing_vec.angle_to(to_player))) > sight_angle_degrees * 0.5:
-		return false
+	# Close range only waives the facing/cone requirement (so something
+	# right up against the agent is noticed from any angle) — it must still
+	# pass the occlusion check, otherwise a large enough radius can "see"
+	# straight through a floor separating two stacked levels.
+	if distance > close_range_awareness:
+		var facing_vec := Vector2(float(facing_direction), 0.0)
+		if rad_to_deg(absf(facing_vec.angle_to(to_player))) > sight_angle_degrees * 0.5:
+			return false
 
 	return _has_clear_sight_line()
 
@@ -208,8 +250,12 @@ func take_damage(amount: float, knockback: Vector2 = Vector2.ZERO) -> void:
 		return
 
 	current_health = maxf(current_health - amount, 0.0)
-	velocity += knockback
-	if knockback != Vector2.ZERO:
+
+	# Mid-attack (lunge/dive), knockback is ignored entirely — otherwise a
+	# parry or a stray hit mid-swing shoves it off its attack path/timing,
+	# which reads as the attack just breaking rather than committing.
+	if knockback != Vector2.ZERO and not is_attacking():
+		velocity += knockback
 		knockback_stun_timer = knockback_stun_duration
 
 	# Getting hit always alerts the agent, even from outside its sight cone

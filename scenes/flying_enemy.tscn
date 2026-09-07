@@ -76,6 +76,7 @@ monitoring = false
 script = ExtResource("2")
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="AttackHitbox" unique_id=1442206812]
+rotation = -0.7853982
 shape = SubResource("RectangleShape2D_attackhitbox")
 disabled = true
 debug_color = Color(1, 0.2, 0.2, 0.5)

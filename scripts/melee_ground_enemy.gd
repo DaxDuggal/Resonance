@@ -22,6 +22,10 @@ class_name MeleeGroundEnemy
 @export var lunge_below_tolerance := 40.0
 @export var retreat_speed := 70.0
 
+@export_group("Attack/Overhead")
+@export var overhead_attack_range := 40.0
+@export var overhead_attack_max_height := 150.0
+
 var jump_cooldown_timer := 0.0
 var turn_lock_timer := 0.0
 var _lunge_launched := false
@@ -57,7 +61,7 @@ func _physics_process(delta: float) -> void:
 		return
 
 	if is_attacking():
-		_process_attack_movement()
+		_process_attack_movement(delta)
 		move_and_slide()
 		return
 
@@ -85,8 +89,12 @@ func _update_attack_visual() -> void:
 # ACTIVE = a mostly-horizontal pounce (a one-time small upward impulse at the
 # moment the lunge launches, then gravity arcs it back down over the rest of
 # the active window — Silksong Needle Strike style, not a flat ground-slide).
+# This is the same attack regardless of whether the player is level or
+# perched above (see _is_attack_ready) — no separate overhead move, it just
+# throws the usual pounce, which the small upward hop gives it a real
+# chance of connecting with.
 # RECOVERY = back up a bit before the loop repeats.
-func _process_attack_movement() -> void:
+func _process_attack_movement(delta: float) -> void:
 	match attack_phase:
 		AttackPhase.STARTUP:
 			velocity.x = 0.0
@@ -116,8 +124,18 @@ func _is_attack_ready() -> bool:
 	if not _player_in_range():
 		return false
 	var to_player: Vector2 = Global.player.global_position - global_position
+
+	# Player perched above, beyond the normal lunge's reach: it still throws
+	# the same pounce rather than just waiting, as long as they're not so
+	# high or so far to the side that the hop has no real chance of
+	# connecting.
 	if to_player.y < -lunge_vertical_tolerance:
-		return false
+		if to_player.y < -overhead_attack_max_height:
+			return false
+		if absf(to_player.x) > overhead_attack_range:
+			return false
+		return true
+
 	if to_player.y > lunge_below_tolerance:
 		return false
 	if absf(to_player.x) > _attack_trigger_range():
@@ -127,15 +145,19 @@ func _is_attack_ready() -> bool:
 	return true
 
 
-# True when the player is detected but standing above the lunge's reach
-# (e.g. perched directly on top of the agent). Distinct from "can't attack
-# yet" — this means "can't attack at all from here," so the tree should
-# just wait rather than trying to chase/turn toward an unreachable target.
+# True when the player is detected but genuinely out of reach — either below
+# a ledge the agent is standing above, or perched above but too high/too far
+# sideways for the pounce (see _is_attack_ready) to have a chance.
+# Distinct from "can't attack yet" — this means "can't attack at all from
+# here," so the tree should just wait rather than trying to chase/turn
+# toward a target it can't get level with either way.
 func _is_player_overhead() -> bool:
 	if not _player_in_range():
 		return false
 	var to_player: Vector2 = Global.player.global_position - global_position
-	return to_player.y < -lunge_vertical_tolerance
+	if to_player.y < -lunge_vertical_tolerance:
+		return to_player.y < -overhead_attack_max_height or absf(to_player.x) > overhead_attack_range
+	return to_player.y > lunge_below_tolerance
 
 
 func _apply_gravity(delta: float) -> void:

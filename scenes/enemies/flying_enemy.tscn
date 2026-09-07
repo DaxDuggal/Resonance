@@ -10,13 +10,10 @@
 
 [sub_resource type="CircleShape2D" id="CircleShape2D_body"]
 
-[sub_resource type="CircleShape2D" id="CircleShape2D_hitbox"]
-radius = 13.0
-
 [sub_resource type="CircleShape2D" id="CircleShape2D_hurtbox"]
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_attackhitbox"]
-size = Vector2(16, 16)
+size = Vector2(26, 26)
 
 [sub_resource type="BlackboardPlan" id="BlackboardPlan_c4a5w"]
 
@@ -56,15 +53,6 @@ polygon = PackedVector2Array(0, -10, 10, 0, 0, 10, -10, 0)
 [node name="BodyShape" type="CollisionShape2D" parent="." unique_id=1965105304]
 shape = SubResource("CircleShape2D_body")
 
-[node name="Hitbox" type="Area2D" parent="." unique_id=518496068]
-collision_layer = 16
-collision_mask = 0
-monitoring = false
-script = ExtResource("2")
-
-[node name="HitboxShape" type="CollisionShape2D" parent="Hitbox" unique_id=1808077828]
-shape = SubResource("CircleShape2D_hitbox")
-
 [node name="Hurtbox" type="Area2D" parent="." unique_id=1301203023]
 collision_layer = 64
 collision_mask = 32
@@ -82,6 +70,9 @@ script = ExtResource("2")
 shape = SubResource("RectangleShape2D_attackhitbox")
 disabled = true
 debug_color = Color(1, 0.2, 0.2, 0.5)
+
+[node name="GroundRay" type="RayCast2D" parent="."]
+target_position = Vector2(0, 600)
 
 [node name="VisibleOnScreenEnabler2D" type="VisibleOnScreenEnabler2D" parent="."]
 enable_mode = 0

@@ -96,6 +96,17 @@ const ENEMY_HURTBOX_LAYER := 64  # project.godot layer_7 "EnemyHurtbox"
 @export var attack_hitbox_vertical_offset := 14.0
 @export var attack_recoil_force := 40.0
 @export var attack_knockback_force := 250.0
+@export var attack_hitstop_duration := 0.09  # landing a hit on an enemy — kept a bit above enemy_hit_hitstop_duration below
+
+@export_group("Hurt")
+# Resolving an incoming enemy hit is delayed by this long (real time, not
+# game time — see Global.hitstop) before damage actually applies. Input
+# keeps being read during that freeze, so a parry pressed right as the hit
+# lands (even a frame or two "late") still gets caught by
+# take_enemy_damage()'s parry check once the delay ends, instead of losing
+# a same-instant race. Kept very short since it delays all incoming hits,
+# not just ones that end up parried.
+@export var enemy_hit_hitstop_duration := 5.0 / 60.0  # ~5 frames @ 60fps
 
 var attack_state_timer := 0.0
 var attack_cooldown_timer := 0.0
@@ -103,7 +114,7 @@ var attack_direction := Vector2.RIGHT
 var _attack_recoil_applied := false
 
 @export_group("Parry")
-@export var parry_window_duration := 0.3
+@export var parry_window_duration := 0.18
 @export var parry_cooldown := 0.5
 @export var parry_heal_amount := 0.25
 @export var parry_damage := 0.5
@@ -319,6 +330,7 @@ func _update_attack_hitboxes() -> void:
 func _on_attack_hitbox_area_entered(area: Area2D) -> void:
 	if area.collision_layer & ENEMY_HURTBOX_LAYER:
 		current_meter = mini(current_meter + 1, max_meter)
+		Global.hitstop(attack_hitstop_duration)
 	_apply_attack_hit_recoil()
 
 
@@ -407,7 +419,7 @@ func _handle_attack_start(attack_pressed: bool, input_y: float) -> void:
 
 	if input_y < -0.5:
 		attack_direction = Vector2.UP
-	elif input_y > 0.5:
+	elif input_y > 0.5 and not is_on_floor():
 		attack_direction = Vector2.DOWN
 	else:
 		attack_direction = Vector2(facing_direction, 0.0)
@@ -896,14 +908,27 @@ func _on_hitbox_body_entered(_body: Node2D) -> void:
 
 func _on_hitbox_area_entered(area: Area2D) -> void:
 	if area is DamageHitbox:
-		var knockback := Vector2.ZERO
-		if area.knockback_force > 0.0:
-			var away_x := global_position.x - area.global_position.x
-			var horizontal_dir := signf(away_x) if absf(away_x) > 1.0 else float(-facing_direction)
-			knockback = Vector2(horizontal_dir, -area.knockback_vertical_ratio) * area.knockback_force
-		take_enemy_damage(area.damage, knockback, area)
+		_resolve_enemy_hit(area)
 	else:
 		hazard_hit()
+
+
+# Delayed by a brief hitstop (see Global.hitstop) before damage actually
+# applies — that freeze doesn't stop this function's own frame from still
+# running each real frame, so a parry pressed during it still sets
+# Flag.PARRYING in time for take_enemy_damage()'s check below.
+func _resolve_enemy_hit(hitbox: DamageHitbox) -> void:
+	if is_invulnerable():
+		return
+
+	await Global.hitstop(enemy_hit_hitstop_duration)
+
+	var knockback := Vector2.ZERO
+	if hitbox.knockback_force > 0.0:
+		var away_x := global_position.x - hitbox.global_position.x
+		var horizontal_dir := signf(away_x) if absf(away_x) > 1.0 else float(-facing_direction)
+		knockback = Vector2(horizontal_dir, -hitbox.knockback_vertical_ratio) * hitbox.knockback_force
+	take_enemy_damage(hitbox.damage, knockback, hitbox)
 
 func hazard_hit() -> void:
 	if is_invulnerable():
