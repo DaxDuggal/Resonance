@@ -91,22 +91,18 @@ const ENEMY_HURTBOX_LAYER := 64  # project.godot layer_7 "EnemyHurtbox"
 @export_group("Attack")
 @export var attack_damage := 1
 @export var attack_duration := 0.15
-@export var attack_cooldown := 0.15
+@export var attack_cooldown := 0.20
 @export var attack_hitbox_horizontal_offset := 12.0
 @export var attack_hitbox_vertical_offset := 14.0
 @export var attack_recoil_force := 40.0
 @export var attack_knockback_force := 250.0
-@export var attack_hitstop_duration := 0.09  # landing a hit on an enemy — kept a bit above enemy_hit_hitstop_duration below
+@export var attack_hitstop_duration := 0.09
 
 @export_group("Hurt")
-# Resolving an incoming enemy hit is delayed by this long (real time, not
-# game time — see Global.hitstop) before damage actually applies. Input
-# keeps being read during that freeze, so a parry pressed right as the hit
-# lands (even a frame or two "late") still gets caught by
-# take_enemy_damage()'s parry check once the delay ends, instead of losing
-# a same-instant race. Kept very short since it delays all incoming hits,
-# not just ones that end up parried.
-@export var enemy_hit_hitstop_duration := 5.0 / 60.0  # ~5 frames @ 60fps
+# Frame-based (see Global.frames_to_seconds) — how long incoming damage is
+# delayed so a same-instant parry still has time to register (see
+# _resolve_enemy_hit below).
+@export var enemy_hit_hitstop_frames := 5
 
 var attack_state_timer := 0.0
 var attack_cooldown_timer := 0.0
@@ -117,8 +113,14 @@ var _attack_recoil_applied := false
 @export var parry_window_duration := 0.18
 @export var parry_cooldown := 0.5
 @export var parry_heal_amount := 0.25
+# Unused for now — a successful parry currently stuns instead of damaging
+# (see _on_parry_success / parry_stun_frames below). Left in place in case
+# a "parry also chips damage" mode comes back later.
 @export var parry_damage := 0.5
 @export var parry_knockback_force := 270.0
+# Frame-based (see Global.frames_to_seconds): how long a parried enemy is
+# completely frozen for, at the project's fixed physics tick rate.
+@export var parry_stun_frames := 45
 
 var parry_state_timer := 0.0
 var parry_cooldown_timer := 0.0
@@ -243,6 +245,16 @@ var respawn_lock_timer := 0.0
 
 
 func _physics_process(delta: float) -> void:
+	# Catch a non-finite velocity here, before anything this frame (corner
+	# correction, dash raycasts, move_and_slide) gets a chance to feed it
+	# into an internal Vector2.normalized() and spam engine warnings. The
+	# check in _apply_movement() further down only protects move_and_slide
+	# itself — this one protects the whole frame, since corner correction
+	# and the dash wall-check run earlier and would otherwise use whatever
+	# bad value carried over.
+	if not velocity.is_finite():
+		velocity = Vector2.ZERO
+
 	var input_x := Input.get_axis("move_left", "move_right")
 	var input_y := Input.get_axis("move_up", "move_down")
 	var jump_pressed := Input.is_action_just_pressed("jump")
@@ -464,6 +476,15 @@ func _handle_checkpoint(grounded: bool) -> void:
 
 func _handle_dash_state(delta: float, jump_consumed: int) -> int:
 	if not has_flag(Flag.DASHING):
+		return jump_consumed
+
+	# dash_duration <= 0 would divide-by-zero below every frame with no way
+	# for dash_timer <= 0.0 to ever end it (a stuck dash also happens to be
+	# exactly what produces the "Vector2 cannot be normalized" spam, since
+	# velocity.x would become NaN and stay that way). Bail out to a clean
+	# end instead of ever computing that division.
+	if dash_duration <= 0.0:
+		_end_dash()
 		return jump_consumed
 
 	dash_timer -= delta
@@ -743,6 +764,14 @@ func _update_timers(delta: float) -> void:
 
 
 func _apply_movement(delta: float) -> void:
+	# Safety net: move_and_slide() normalizes velocity internally for slide
+	# resolution, so a NaN/Inf ever sneaking into it (a stray bad knockback
+	# vector, a division edge case, etc.) would throw a native "cannot be
+	# normalized" warning deep in the engine. Catch it here instead, where
+	# it's obvious what happened and easy to reset cleanly.
+	if not velocity.is_finite():
+		velocity = Vector2.ZERO
+
 	if has_flag(Flag.DASHING) and velocity.length() > 1.0:
 		var next_pos := global_position + velocity * delta
 		var space = get_world_2d().direct_space_state
@@ -896,12 +925,7 @@ func _on_parry_success(source_hitbox: Area2D = null) -> void:
 	if source_hitbox:
 		var enemy := source_hitbox.get_parent() as Enemy
 		if enemy:
-			var knockback := Vector2.ZERO
-			if parry_knockback_force > 0.0:
-				var away_x := enemy.global_position.x - global_position.x
-				var horizontal_dir := signf(away_x) if absf(away_x) > 1.0 else float(facing_direction)
-				knockback = Vector2(horizontal_dir, -0.3) * parry_knockback_force
-			enemy.take_damage(parry_damage, knockback)
+			enemy.stun(Global.frames_to_seconds(parry_stun_frames))
 
 func _on_hitbox_body_entered(_body: Node2D) -> void:
 	hazard_hit()
@@ -921,7 +945,13 @@ func _resolve_enemy_hit(hitbox: DamageHitbox) -> void:
 	if is_invulnerable():
 		return
 
-	await Global.hitstop(enemy_hit_hitstop_duration)
+	await Global.hitstop(Global.frames_to_seconds(enemy_hit_hitstop_frames))
+
+	# The hitbox (and the enemy it belongs to) can have been freed during
+	# that real-time delay — e.g. the same hit that's resolving here also
+	# got the enemy killed some other way in the meantime.
+	if not is_instance_valid(hitbox):
+		return
 
 	var knockback := Vector2.ZERO
 	if hitbox.knockback_force > 0.0:
@@ -959,9 +989,11 @@ func respawn() -> void:
 
 	respawn_lock_timer = respawn_lock_time
 
+	print("[respawn] time_scale=%.2f->0.85 (hitstop count=%d)" % [Engine.time_scale, Global._hitstop_count])  # TEMP DEBUG
 	Engine.time_scale = 0.85
 	await get_tree().create_timer(0.15 / Engine.time_scale).timeout
 	Engine.time_scale = 1.0
+	print("[respawn] time_scale->1.0 (hitstop count=%d)" % Global._hitstop_count)  # TEMP DEBUG
 
 func dead() -> void:
 	if has_flag(Flag.DEAD):
@@ -972,10 +1004,16 @@ func dead() -> void:
 	current_health = max_health
 	Global.death_count += 1
 	Global.did_just_die = true
+	print("[dead] time_scale=%.2f->0.7 (hitstop count=%d)" % [Engine.time_scale, Global._hitstop_count])  # TEMP DEBUG
 	Engine.time_scale = 0.7
 	timer.start()
 
 func _on_timer_timeout() -> void:
+	# Same reasoning as pauseMenu.gd's restart handler: a hitstop's real-time
+	# timer can still be mid-flight when death reloads the scene, and
+	# Engine.time_scale = 1.0 alone doesn't clear Global's hitstop counter —
+	# leaving it desynced for whatever the next hitstop call is.
+	Global.reset_hitstop()
 	Engine.time_scale = 1.0
 	get_tree().reload_current_scene()
 

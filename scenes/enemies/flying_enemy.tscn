@@ -2,11 +2,14 @@
 
 [ext_resource type="Script" uid="uid://d2oxaledp4vio" path="res://scripts/flying_enemy.gd" id="1"]
 [ext_resource type="Script" uid="uid://dano3qelwypyt" path="res://scripts/damage_hitbox.gd" id="2"]
-[ext_resource type="Script" uid="uid://wo30m1ykm0l" path="res://scripts/bt/bt_player_in_range.gd" id="3_dyvm4"]
-[ext_resource type="Script" uid="uid://d4m5o48073ue6" path="res://scripts/bt/bt_chase_player.gd" id="4_ms2v3"]
-[ext_resource type="Script" uid="uid://c7l0bikxln86q" path="res://scripts/bt/bt_stop.gd" id="5_1bv63"]
-[ext_resource type="Script" path="res://scripts/bt/bt_attack.gd" id="6_attack"]
-[ext_resource type="Resource" path="res://resources/attack_profiles/skydiver_dive.tres" id="7_atkprof"]
+[ext_resource type="Script" uid="uid://jcrd2bwcq7sm" path="res://scripts/bt/bt_attack_ready.gd" id="3_atkready"]
+[ext_resource type="Script" uid="uid://co71w6mqr84kg" path="res://scripts/bt/bt_start_attack.gd" id="4_startatk"]
+[ext_resource type="Script" uid="uid://cbhh3454xgiv2" path="res://scripts/bt/bt_player_too_close.gd" id="5_tooclose"]
+[ext_resource type="Script" uid="uid://b4q4je63ipnj6" path="res://scripts/bt/bt_back_away.gd" id="6_backaway"]
+[ext_resource type="Script" uid="uid://llgueotdhtxg" path="res://scripts/bt/bt_player_too_far.gd" id="7_toofar"]
+[ext_resource type="Script" uid="uid://dtt2sinqrubl1" path="res://scripts/bt/bt_chase_horizontal.gd" id="8_chasehoriz"]
+[ext_resource type="Script" uid="uid://dbfawb83kg08o" path="res://scripts/bt/bt_hold_horizontal.gd" id="9_holdhoriz"]
+[ext_resource type="Resource" path="res://resources/attack_profiles/skydiver_dive.tres" id="10_atkprof"]
 
 [sub_resource type="CircleShape2D" id="CircleShape2D_body"]
 
@@ -17,34 +20,49 @@ size = Vector2(26, 26)
 
 [sub_resource type="BlackboardPlan" id="BlackboardPlan_c4a5w"]
 
-[sub_resource type="BTCondition" id="BTCondition_x4wu4"]
-script = ExtResource("3_dyvm4")
+[sub_resource type="BTCondition" id="BTCondition_atkready"]
+script = ExtResource("3_atkready")
 
-[sub_resource type="BTAction" id="BTAction_iapyh"]
-script = ExtResource("4_ms2v3")
+[sub_resource type="BTAction" id="BTAction_startatk"]
+script = ExtResource("4_startatk")
 
-[sub_resource type="BTDynamicSequence" id="BTSequence_lrtul"]
-children = [SubResource("BTCondition_x4wu4"), SubResource("BTAction_iapyh")]
+[sub_resource type="BTDynamicSequence" id="BTSequence_attack"]
+children = [SubResource("BTCondition_atkready"), SubResource("BTAction_startatk")]
 
-[sub_resource type="BTAction" id="BTAction_uekyw"]
-script = ExtResource("5_1bv63")
+[sub_resource type="BTCondition" id="BTCondition_tooclose"]
+script = ExtResource("5_tooclose")
 
-[sub_resource type="BTAction" id="BTAction_attack"]
-script = ExtResource("6_attack")
+[sub_resource type="BTAction" id="BTAction_backaway"]
+script = ExtResource("6_backaway")
 
-[sub_resource type="BTDynamicSelector" id="BTSelector_dyvm4"]
-children = [SubResource("BTAction_attack"), SubResource("BTSequence_lrtul"), SubResource("BTAction_uekyw")]
+[sub_resource type="BTDynamicSequence" id="BTSequence_backaway"]
+children = [SubResource("BTCondition_tooclose"), SubResource("BTAction_backaway")]
+
+[sub_resource type="BTCondition" id="BTCondition_toofar"]
+script = ExtResource("7_toofar")
+
+[sub_resource type="BTAction" id="BTAction_chasehoriz"]
+script = ExtResource("8_chasehoriz")
+
+[sub_resource type="BTDynamicSequence" id="BTSequence_chase"]
+children = [SubResource("BTCondition_toofar"), SubResource("BTAction_chasehoriz")]
+
+[sub_resource type="BTAction" id="BTAction_holdhoriz"]
+script = ExtResource("9_holdhoriz")
+
+[sub_resource type="BTDynamicSelector" id="BTSelector_root"]
+children = [SubResource("BTSequence_attack"), SubResource("BTSequence_backaway"), SubResource("BTSequence_chase"), SubResource("BTAction_holdhoriz")]
 
 [sub_resource type="BehaviorTree" id="BehaviorTree_kvpfn"]
 blackboard_plan = SubResource("BlackboardPlan_c4a5w")
-root_task = SubResource("BTSelector_dyvm4")
+root_task = SubResource("BTSelector_root")
 
 [sub_resource type="BlackboardPlan" id="BlackboardPlan_fgwew"]
 
 [node name="FlyingEnemy" type="CharacterBody2D" unique_id=197813680]
 collision_layer = 4
 script = ExtResource("1")
-attack_profile = ExtResource("7_atkprof")
+attack_profile = ExtResource("10_atkprof")
 
 [node name="Placeholder" type="Polygon2D" parent="." unique_id=1990793092]
 color = Color(0.2, 0.3, 0.85, 1)

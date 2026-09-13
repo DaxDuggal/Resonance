@@ -211,8 +211,16 @@ func load_preferences() -> void:
 	screen_shake_enabled = cfg.get_value("accessibility", "screen_shake_enabled", screen_shake_enabled)
 
 	for action in REBINDABLE_ACTIONS:
-		var events = cfg.get_value("keybindings", action, null)
-		if events != null and InputMap.has_action(action):
+		# ConfigFile.get_value() logs an error to the console whenever the
+		# key is missing AND the default passed is null (NIL) — not just a
+		# quiet fallback, an actual C++-level error condition. An empty
+		# Array default sidesteps that entirely (and works just as well:
+		# the for loop below is simply a no-op when it's empty), which is
+		# what was causing the "keybindings"/"parry"/"special" errors for
+		# any preferences.cfg saved before those actions were added to
+		# REBINDABLE_ACTIONS.
+		var events: Array = cfg.get_value("keybindings", action, [])
+		if events.size() > 0 and InputMap.has_action(action):
 			InputMap.action_erase_events(action)
 			for event in events:
 				InputMap.action_add_event(action, event)

@@ -3,24 +3,27 @@ class_name FlyingEnemy
 
 @export_group("Movement")
 @export var move_speed := 130.0
-@export var hover_height := 140.0
+@export var hover_height := 90.0
 @export var gravity := 220.0
 @export var hop_impulse := 150.0
 @export var hop_rise_drag := 400.0
 @export var hop_interval := 0.6
 @export var max_rise_speed := 140.0
 @export var max_fall_speed := 220.0
+# Shared accel rate for every horizontal flight-movement leaf (BackAway/
+# ChaseHorizontal/HoldHorizontal) and the dive's recovery ease-out — named
+# instead of the same "move_speed * 4.0" magic number repeated everywhere.
+@export var flight_accel_mult := 4.0
 
 var _spawn_y := 0.0
 var hop_timer := 0.0
-var _just_hopped := false
 
 @export_group("Dive Attack")
-@export var dive_drop_distance := 150.0
-@export var dive_horizontal_distance := 195.0
-@export var dive_trigger_min_x := 90.0
-@export var dive_trigger_range := 300.0
-@export var min_chase_distance := 170.0
+@export var dive_drop_distance := 117.0
+@export var dive_horizontal_distance := 152.0
+@export var dive_trigger_min_x := 70.0
+@export var dive_trigger_range := 234.0
+@export var min_chase_distance := 133.0
 
 var _dive_launched := false
 var _dive_p0 := Vector2.ZERO
@@ -36,24 +39,40 @@ var _dive_p3 := Vector2.ZERO
 func _ready() -> void:
 	super._ready()
 	_spawn_y = global_position.y
-	# BTPlayer defaults to auto-updating itself every physics frame. It's
-	# fully unused now (see _physics_process), but left in the scene — force
-	# it to MANUAL and never call .update() so it can't run itself in the
-	# background and silently stomp velocity again.
+	# BT now owns the horizontal decision (back away/chase/hold) and attack
+	# triggering (AttackReady -> StartAttack) — see the leaves under
+	# scripts/bt/. Default AUTO update_mode would tick it a second time on
+	# top of our explicit call below, so force MANUAL and tick it ourselves
+	# at the right point in _physics_process (same reason MeleeGroundEnemy
+	# does this).
 	bt_player.update_mode = BTPlayer.UpdateMode.MANUAL
 
 
-# Movement here is fully script-owned rather than BTPlayer-driven — the old
-# tree's non-attack branches (ChasePlayer/Stop) wrote directly to velocity,
-# which fought with _apply_flight()'s incremental gravity/hop model (that
-# function only *adds* gravity to whatever velocity.y already was, it
-# doesn't reset it) and corrupted the hover height. The BTPlayer/BehaviorTree
-# node is still in the scene but unused now — safe to delete whenever.
+# Hover physics (vertical) stay fully script-owned regardless of what the
+# tree decides — it's a continuous simulation, not a decision, same as
+# MeleeGroundEnemy's _apply_gravity(). BT only ever writes velocity.x.
 func _physics_process(delta: float) -> void:
 	if is_dead:
 		return
 
+	# Same reasoning as Player._physics_process()'s own guard: a NaN/Inf
+	# velocity here would otherwise feed into a knockback vector computed
+	# from this enemy's position on the player's next hit, propagating the
+	# corruption onto the player instead of staying contained to this enemy.
+	if not velocity.is_finite():
+		velocity = Vector2.ZERO
+
 	_update_awareness(delta)
+
+	if _tick_stun(delta):
+		# Stunned means it can't flap — falls like a stone instead of
+		# hovering, rather than being pinned in mid-air.
+		velocity.x = 0.0
+		velocity.y += gravity * delta
+		velocity.y = clampf(velocity.y, -max_rise_speed, max_fall_speed)
+		move_and_slide()
+		return
+
 	_tick_attack(delta)
 
 	if _tick_knockback_stun(delta):
@@ -67,15 +86,11 @@ func _physics_process(delta: float) -> void:
 		move_and_slide()
 		return
 
-	_apply_flight(delta)
+	_apply_hover(delta)
+	bt_player.update(delta)
 
-	# The dive only ever triggers in the same frame a hop fires — see
-	# _apply_flight — so the jump itself becomes the dive's windup instead
-	# of separately waiting to notice "it's currently above its patrol
-	# line," which in practice was almost always mid-hop anyway and easy to
-	# miss.
-	if _just_hopped and _is_attack_ready():
-		start_attack()
+	if absf(velocity.x) > 5.0:
+		facing_direction = int(signf(velocity.x))
 
 	move_and_slide()
 
@@ -85,58 +100,55 @@ func _update_attack_visual() -> void:
 	visual.modulate = Color(1.0, 0.3, 0.3) if attack_phase == AttackPhase.STARTUP else Color.WHITE
 
 
-# Patrol/chase: horizontal keeps itself in the band it can actually dive
-# from instead of just closing distance and stopping — too close (under
-# dive_trigger_min_x) and it backs away to open up the room the dive needs;
-# far enough but past min_chase_distance and it closes back in; in between,
-# it holds still (that hold band is what gives the dive a real window to
-# trigger, rather than requiring the player to be the one backing off).
-# Vertical target is a fixed height above whatever ground is directly below
-# (via GroundRay) — it always tries to sit at this line whenever it isn't
+# Vertical-only now — the horizontal decision (back away/chase/hold) moved
+# to the BT tree (see scripts/bt/bt_player_too_close.gd, bt_player_too_far.gd,
+# bt_back_away.gd, bt_chase_horizontal.gd, bt_hold_horizontal.gd). This still
+# runs every non-attacking physics frame regardless of what the tree decides,
+# same as MeleeGroundEnemy's _apply_gravity().
+#
+# Target is a fixed height above whatever ground is directly below (via
+# GroundRay) — it always tries to sit at this line whenever it isn't
 # attacking, which also doubles as the dive's "home" line (see
 # _is_attack_ready).
 #
-# Vertical motion is a sharp wingbeat, not a ballistic hop: a strong upward
-# impulse that gets burned off fast by its own drag (hop_rise_drag) rather
-# than fighting a constant gravity the whole way up — that decoupling is
-# what lets the flap read as a strong, snappy pop instead of either a weak
-# floaty rise (gravity too low) or an equally harsh climb and fall (gravity
-# raised to compensate). Once the rise has bled off, normal gravity takes
-# over and it drops back down at a natural rate until the next hop.
-func _apply_flight(delta: float) -> void:
-	_just_hopped = false
-
+# Motion is a sharp wingbeat, not a ballistic hop: a strong upward impulse
+# that gets burned off fast by its own drag (hop_rise_drag) rather than
+# fighting a constant gravity the whole way up — that decoupling is what
+# lets the flap read as a strong, snappy pop instead of either a weak floaty
+# rise (gravity too low) or an equally harsh climb and fall (gravity raised
+# to compensate). Once the rise has bled off, normal gravity takes over and
+# it drops back down at a natural rate until the next hop.
+func _apply_hover(delta: float) -> void:
 	if ground_ray.is_colliding():
 		_spawn_y = ground_ray.get_collision_point().y - hover_height
-
-	if _player_in_range():
-		var to_player_x := Global.player.global_position.x - global_position.x
-		var distance_x := absf(to_player_x)
-		if distance_x < dive_trigger_min_x:
-			var away_dir := -signf(to_player_x) if to_player_x != 0.0 else -float(facing_direction)
-			velocity.x = move_toward(velocity.x, away_dir * move_speed, move_speed * 4.0 * delta)
-		elif distance_x > min_chase_distance:
-			var direction_x := signf(to_player_x)
-			velocity.x = move_toward(velocity.x, direction_x * move_speed, move_speed * 4.0 * delta)
-		else:
-			velocity.x = move_toward(velocity.x, 0.0, move_speed * 4.0 * delta)
-	else:
-		velocity.x = move_toward(velocity.x, 0.0, move_speed * 4.0 * delta)
-
-	if absf(velocity.x) > 5.0:
-		facing_direction = signi(velocity.x)
 
 	hop_timer = maxf(hop_timer - delta, 0.0)
 	if global_position.y > _spawn_y and hop_timer <= 0.0:
 		velocity.y = -hop_impulse
 		hop_timer = hop_interval
-		_just_hopped = true
 
 	if velocity.y < 0.0:
 		velocity.y = move_toward(velocity.y, 0.0, hop_rise_drag * delta)
 	else:
 		velocity.y += gravity * delta
 	velocity.y = clampf(velocity.y, -max_rise_speed, max_fall_speed)
+
+
+# Thin wrappers for the BT condition leaves (bt_player_too_close.gd/
+# bt_player_too_far.gd) — kept on the agent so the distance math has one
+# home instead of being duplicated in the leaf scripts.
+func _player_too_close() -> bool:
+	if not _player_in_range():
+		return false
+	var distance_x := absf(Global.player.global_position.x - global_position.x)
+	return distance_x < dive_trigger_min_x
+
+
+func _player_too_far() -> bool:
+	if not _player_in_range():
+		return false
+	var distance_x := absf(Global.player.global_position.x - global_position.x)
+	return distance_x > min_chase_distance
 
 
 # Cubic Bezier helpers — B(t) is the point at t in [0, 1], B'(t) is its
@@ -157,14 +169,22 @@ static func _bezier_derivative(p0: Vector2, p1: Vector2, p2: Vector2, p3: Vector
 # and never actually reaches the floor, and that the shape is a clean,
 # symmetric "down, a little horizontal, then back up" every time regardless
 # of terrain underneath. P0 is the launch point (relative origin); P1 and
-# P2 sit at the same depth (dive_drop_distance) a quarter and three-quarters
-# of the way across, which is what gives the flattened, "hangs at the
-# bottom for a beat" middle instead of a sharp V; P3 returns to the same
-# height it launched from, a mirror of P0 — hence symmetric. The whole
-# curve's direction (which way the horizontal reach points) is locked in
-# once at launch rather than homing on the player mid-dive, so the shape
-# stays intact. RECOVERY just lets gravity settle it the rest of the way
-# back into _apply_flight's hover once the attack ends.
+# P2 sit at y = dive_drop_distance a quarter and three-quarters of the way
+# across, which is what gives the flattened, "hangs at the bottom for a
+# beat" middle instead of a sharp V; P3 returns to the same height it
+# launched from, a mirror of P0 — hence symmetric.
+#
+# Note dive_drop_distance is the *control point's* offset, not the curve's
+# actual lowest point — for this P1=P2 symmetric layout the true max depth
+# works out to y(t) = 3*D*t*(1-t), which peaks at t=0.5 at 0.75*D. So the
+# real dip below the launch point is 0.75 * dive_drop_distance, not
+# dive_drop_distance itself (117 -> ~87.75px below the launch height, which
+# is the 85-90px band this was tuned for).
+#
+# The whole curve's direction (which way the horizontal reach points) is
+# locked in once at launch rather than homing on the player mid-dive, so
+# the shape stays intact. RECOVERY just lets gravity settle it the rest of
+# the way back into _apply_hover's hover once the attack ends.
 func _process_attack(delta: float) -> void:
 	match attack_phase:
 		AttackPhase.STARTUP:
@@ -178,7 +198,7 @@ func _process_attack(delta: float) -> void:
 					dir = signf(Global.player.global_position.x - global_position.x)
 				if dir == 0.0:
 					dir = float(facing_direction)
-				facing_direction = signi(dir)
+				facing_direction = int(signf(dir))
 
 				_dive_p0 = Vector2.ZERO
 				_dive_p1 = Vector2(dir * dive_horizontal_distance * 0.25, dive_drop_distance)
@@ -198,7 +218,7 @@ func _process_attack(delta: float) -> void:
 			# means) — nothing eased it back down before, so it just
 			# coasted sideways at that same speed for the whole recovery
 			# window instead of settling out.
-			velocity.x = move_toward(velocity.x, 0.0, move_speed * 4.0 * delta)
+			velocity.x = move_toward(velocity.x, 0.0, move_speed * flight_accel_mult * delta)
 			velocity.y += gravity * delta
 			velocity.y = clampf(velocity.y, -max_rise_speed, max_fall_speed)
 
@@ -207,9 +227,10 @@ func _player_in_range() -> bool:
 	return is_aware_of_player
 
 
-# The height requirement is handled by the caller only checking this right
-# when a hop just fired (see _physics_process/_apply_flight) — this just
-# covers the remaining conditions (cooldown, awareness, horizontal range).
+# Plain cooldown/awareness/horizontal-range check, ticked every BT frame via
+# the AttackReady leaf (bt_attack_ready.gd) — same pattern as
+# MeleeGroundEnemy. No hop-timing requirement: it can trigger the instant
+# these conditions are true, not just right as a hop peaks.
 func _is_attack_ready() -> bool:
 	if not can_start_attack():
 		return false

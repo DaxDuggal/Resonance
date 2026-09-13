@@ -12,6 +12,30 @@ var current_health := 5.0
 @export var knockback_stun_duration := 0.2
 var knockback_stun_timer := 0.0
 
+# A full stop, distinct from knockback stun — no damage, no shove, just
+# unable to attack or move under its own power for stun_timer seconds.
+# Gravity/physics still apply (it can still fall, land, slide to a stop) —
+# it's "stuck," not literally frozen in place. Used by a successful player
+# parry, which also cancels whatever attack was in progress so there's no
+# lingering hitbox during the stun.
+var stun_timer := 0.0
+
+func stun(duration: float) -> void:
+	stun_timer = maxf(stun_timer, duration)
+	if is_attacking():
+		attack_phase = AttackPhase.NONE
+		attack_phase_timer = 0.0
+		if attack_hitbox_shape:
+			attack_hitbox_shape.disabled = true
+		if attack_profile:
+			attack_cooldown_timer = attack_profile.cooldown
+
+func _tick_stun(delta: float) -> bool:
+	if stun_timer <= 0.0:
+		return false
+	stun_timer = maxf(stun_timer - delta, 0.0)
+	return true
+
 var is_dead := false
 
 @export var world_state_id: String = ""

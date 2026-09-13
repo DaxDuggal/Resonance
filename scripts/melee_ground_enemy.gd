@@ -46,7 +46,20 @@ func _physics_process(delta: float) -> void:
 	if is_dead:
 		return
 
+	# Same reasoning as Player._physics_process()'s own guard: a NaN/Inf
+	# velocity here would otherwise feed into a knockback vector computed
+	# from this enemy's position on the player's next hit, propagating the
+	# corruption onto the player instead of staying contained to this enemy.
+	if not velocity.is_finite():
+		velocity = Vector2.ZERO
+
 	_update_awareness(delta)
+
+	if _tick_stun(delta):
+		_apply_gravity(delta)
+		velocity.x = 0.0
+		move_and_slide()
+		return
 
 	jump_cooldown_timer = maxf(jump_cooldown_timer - delta, 0.0)
 	turn_lock_timer = maxf(turn_lock_timer - delta, 0.0)
@@ -94,7 +107,7 @@ func _update_attack_visual() -> void:
 # throws the usual pounce, which the small upward hop gives it a real
 # chance of connecting with.
 # RECOVERY = back up a bit before the loop repeats.
-func _process_attack_movement(delta: float) -> void:
+func _process_attack_movement(_delta: float) -> void:
 	match attack_phase:
 		AttackPhase.STARTUP:
 			velocity.x = 0.0

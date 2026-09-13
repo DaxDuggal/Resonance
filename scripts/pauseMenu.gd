@@ -31,6 +31,11 @@ func _on_panflute_pressed() -> void:
 
 func _on_restart_pressed() -> void:
 	resume()
+	# A hitstop (see Global.hitstop) could be mid-flight right now — its
+	# await is waiting on a real-time timer that survives the reload below,
+	# but the node that kicked it off (player/enemy) won't. Force-clear it
+	# so Engine.time_scale can't come out of the reload stuck at 0.
+	Global.reset_hitstop()
 	Global.has_checkpoint = false
 	# Reloading the scene alone only resets the checkpoint/player — enemy
 	# deaths persist through WorldState independently of that (see
