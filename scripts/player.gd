@@ -26,9 +26,6 @@ func set_flag(flag: int, value: bool) -> void:
 func is_invulnerable() -> bool:
 	return invulnerability_timer > 0.0 or dash_grace_timer > 0.0
 
-func is_airborne() -> bool:
-	return not is_on_floor()
-
 @onready var sprite: AnimatedSprite2D = $AnimatedSprite2D
 @onready var timer: Timer = $Timer
 
@@ -276,7 +273,8 @@ func _physics_process(delta: float) -> void:
 		input_x = 0.0
 		input_y = 0.0
 
-	var jump_consumed = _handle_invulnerability(delta)
+	_handle_invulnerability(delta)
+	var jump_consumed := 0
 	_handle_input_buffers(jump_pressed, dash_pressed, grounded)
 	_handle_dash_start(input_x, input_y)
 	_handle_attack_start(attack_pressed, input_y)
@@ -378,7 +376,7 @@ func _update_animation() -> void:
 		sprite.play(target)
 
 
-func _handle_invulnerability(delta: float) -> int:
+func _handle_invulnerability(delta: float) -> void:
 	var invuln_color := Color.WHITE
 	if invulnerability_timer > 0.0:
 		invulnerability_timer -= delta
@@ -388,7 +386,6 @@ func _handle_invulnerability(delta: float) -> int:
 
 	if sprite.self_modulate != invuln_color:
 		sprite.self_modulate = invuln_color
-	return 0
 
 
 func _handle_input_buffers(jump_pressed: bool, dash_pressed: bool, grounded: bool) -> void:

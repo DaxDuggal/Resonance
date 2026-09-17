@@ -100,24 +100,19 @@ func _update_attack_visual() -> void:
 	visual.modulate = Color(1.0, 0.3, 0.3) if attack_phase == AttackPhase.STARTUP else Color.WHITE
 
 
-# Vertical-only now — the horizontal decision (back away/chase/hold) moved
-# to the BT tree (see scripts/bt/bt_player_too_close.gd, bt_player_too_far.gd,
-# bt_back_away.gd, bt_chase_horizontal.gd, bt_hold_horizontal.gd). This still
-# runs every non-attacking physics frame regardless of what the tree decides,
-# same as MeleeGroundEnemy's _apply_gravity().
+# Vertical-only now — horizontal movement (back away/chase/hold) moved to
+# the BT tree (bt_player_too_close.gd, bt_player_too_far.gd, bt_back_away.gd,
+# bt_chase_horizontal.gd, bt_hold_horizontal.gd). Runs every non-attacking
+# physics frame regardless of what the tree decides, same as
+# MeleeGroundEnemy's _apply_gravity().
 #
-# Target is a fixed height above whatever ground is directly below (via
-# GroundRay) — it always tries to sit at this line whenever it isn't
-# attacking, which also doubles as the dive's "home" line (see
-# _is_attack_ready).
+# Targets a fixed height above the ground directly below (via GroundRay);
+# this line also doubles as the dive's "home" line (see _is_attack_ready).
 #
-# Motion is a sharp wingbeat, not a ballistic hop: a strong upward impulse
-# that gets burned off fast by its own drag (hop_rise_drag) rather than
-# fighting a constant gravity the whole way up — that decoupling is what
-# lets the flap read as a strong, snappy pop instead of either a weak floaty
-# rise (gravity too low) or an equally harsh climb and fall (gravity raised
-# to compensate). Once the rise has bled off, normal gravity takes over and
-# it drops back down at a natural rate until the next hop.
+# The hop is a sharp wingbeat, not a ballistic arc: hop_impulse fires it
+# upward and hop_rise_drag burns that rise off quickly, independent of
+# gravity, so it reads as a snappy pop rather than a floaty rise or an
+# over-strong climb/fall.
 func _apply_hover(delta: float) -> void:
 	if ground_ray.is_colliding():
 		_spawn_y = ground_ray.get_collision_point().y - hover_height
@@ -164,27 +159,18 @@ static func _bezier_derivative(p0: Vector2, p1: Vector2, p2: Vector2, p3: Vector
 	return (p1 - p0) * (3.0 * mt * mt) + (p2 - p1) * (6.0 * mt * t) + (p3 - p2) * (3.0 * t * t)
 
 
-# The dive is a fixed, precomputed 4-point Bezier curve, not a physics/floor
-# reaction — that's what guarantees it always dips the same shallow amount
-# and never actually reaches the floor, and that the shape is a clean,
-# symmetric "down, a little horizontal, then back up" every time regardless
-# of terrain underneath. P0 is the launch point (relative origin); P1 and
-# P2 sit at y = dive_drop_distance a quarter and three-quarters of the way
-# across, which is what gives the flattened, "hangs at the bottom for a
-# beat" middle instead of a sharp V; P3 returns to the same height it
-# launched from, a mirror of P0 — hence symmetric.
+# Fixed, precomputed 4-point Bezier curve rather than a physics/floor
+# reaction, so the dive always dips the same shallow amount and returns to
+# launch height (P3 mirrors P0). P1/P2 sit at dive_drop_distance a quarter
+# and three-quarters across, giving a flattened "hangs at the bottom"
+# middle instead of a sharp V.
 #
-# Note dive_drop_distance is the *control point's* offset, not the curve's
-# actual lowest point — for this P1=P2 symmetric layout the true max depth
-# works out to y(t) = 3*D*t*(1-t), which peaks at t=0.5 at 0.75*D. So the
-# real dip below the launch point is 0.75 * dive_drop_distance, not
-# dive_drop_distance itself (117 -> ~87.75px below the launch height, which
-# is the 85-90px band this was tuned for).
+# Note: dive_drop_distance is the *control point's* offset, not the curve's
+# actual lowest point. For this P1=P2 layout, true depth = 0.75 *
+# dive_drop_distance (117 -> ~88px, the tuned range).
 #
-# The whole curve's direction (which way the horizontal reach points) is
-# locked in once at launch rather than homing on the player mid-dive, so
-# the shape stays intact. RECOVERY just lets gravity settle it the rest of
-# the way back into _apply_hover's hover once the attack ends.
+# Direction is locked in at launch, not homed on the player mid-dive.
+# RECOVERY lets gravity settle it back into _apply_hover once the attack ends.
 func _process_attack(delta: float) -> void:
 	match attack_phase:
 		AttackPhase.STARTUP:

@@ -4,7 +4,7 @@
 [ext_resource type="PackedScene" uid="uid://chchtg3bl6325" path="res://scenes/player.tscn" id="1_uwrxv"]
 [ext_resource type="Texture2D" uid="uid://drma6hfm1eleh" path="res://assets/sprites/world_tileset.png" id="2_yqjtg"]
 [ext_resource type="Script" uid="uid://bd046eokvcnu2" path="res://addons/phantom_camera/scripts/phantom_camera_host/phantom_camera_host.gd" id="3_gee14"]
-[ext_resource type="PackedScene" uid="uid://bqrfyvsvd2pwj" path="res://scenes/hitbox.tscn" id="3_lnu2h"]
+[ext_resource type="PackedScene" uid="uid://bqrfyvsvd2pwj" path="res://scenes/Hitbox.tscn" id="3_lnu2h"]
 [ext_resource type="Script" uid="uid://bhexx6mj1xv3q" path="res://addons/phantom_camera/scripts/phantom_camera/phantom_camera_2d.gd" id="4_0tnpc"]
 [ext_resource type="PackedScene" uid="uid://ctalwguatud45" path="res://scenes/pauseMenu.tscn" id="4_lbhrr"]
 [ext_resource type="PackedScene" uid="uid://cpiphvasrms15" path="res://scenes/enemies/melee_ground_enemy.tscn" id="5_0tnpc"]

@@ -16,19 +16,6 @@ func pause() -> void:
 func _on_resume_pressed() -> void:
 	resume()
 
-# Instrument buttons — no-ops until the attack system exists.
-func _on_basic_pressed() -> void:
-	pass
-
-func _on_conch_shell_pressed() -> void:
-	pass
-
-func _on_bongos_pressed() -> void:
-	pass
-
-func _on_panflute_pressed() -> void:
-	pass
-
 func _on_restart_pressed() -> void:
 	resume()
 	# A hitstop (see Global.hitstop) could be mid-flight right now — its
