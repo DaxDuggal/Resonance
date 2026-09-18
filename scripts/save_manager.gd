@@ -8,6 +8,13 @@ const SAVE_DIR := "user://saves/"
 const SLOT_COUNT := 3
 const DEFAULT_SCENE_PATH := "res://scenes/game.tscn"
 
+# Which slot is "active" — read/written by everything below. Right now
+# nothing ever changes this away from 0, since there's no slot-select UI
+# yet (see TODO_ORDERED.md — multiple saves per Hollow Knight/Silksong-style
+# slot picker is planned). When that screen exists, it just needs to set
+# this before calling load_game()/continuing, and start_menu.gd already
+# reads through this var rather than a hardcoded slot, so nothing else here
+# needs to change to support it.
 var current_slot: int = 0
 
 
@@ -17,6 +24,11 @@ func _ready() -> void:
 	_load_on_boot()
 
 
+# Loads the active slot's data into Global/WorldState on startup so it's
+# ready the instant something needs it (e.g. the start menu deciding
+# whether "Start" should say/act like "Continue"). Does NOT change scenes —
+# the start menu is always what boots first now, and it's the one that
+# decides where to go from there (see start_menu.gd's _on_start_pressed).
 func _load_on_boot() -> void:
 	if not has_save(current_slot):
 		return
@@ -26,14 +38,6 @@ func _load_on_boot() -> void:
 		return
 
 	_apply_slot_data(cfg)
-	call_deferred("_goto_saved_scene")
-
-
-func _goto_saved_scene() -> void:
-	var current_scene := get_tree().current_scene
-	if current_scene and current_scene.scene_file_path == Global.last_checkpoint_scene:
-		return
-	get_tree().change_scene_to_file(Global.last_checkpoint_scene)
 
 
 func _notification(what: int) -> void:

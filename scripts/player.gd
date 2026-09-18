@@ -29,11 +29,18 @@ func is_invulnerable() -> bool:
 # Enemies never physically collide with the player (see project's collision
 # layer setup) — overlap is instead prevented by Enemy._apply_player_overlap_push,
 # a plain horizontal push done in script. This is what that push checks to
-# decide whether to pass through instead: invulnerability already means "no
-# damage," so no overlap-blocking either; parrying is the other explicit
-# exception (a parry window shouldn't be interrupted by a physical shove).
+# decide whether to pass through instead. Deliberately narrower than
+# is_invulnerable(): dash_grace_timer covers the dash itself (and its short
+# tail) where passing through enemies is the point, and parrying is the
+# other explicit exception (a parry window shouldn't be interrupted by a
+# physical shove). Ordinary post-hit/respawn invulnerability_timer is NOT
+# included here on purpose — being unable to take damage for a moment
+# shouldn't also make you intangible, or an enemy mid-lunge sails straight
+# through you instead of being blocked (the Sept 2026 "enemy goes through
+# me" bug: take_damage() grants 0.75s of invulnerability on every hit, which
+# used to suppress the push for that whole window).
 func should_ignore_enemy_overlap() -> bool:
-	return is_invulnerable() or has_flag(Flag.PARRYING)
+	return dash_grace_timer > 0.0 or has_flag(Flag.PARRYING)
 
 @onready var sprite: AnimatedSprite2D = $AnimatedSprite2D
 @onready var timer: Timer = $Timer
