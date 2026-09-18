@@ -59,6 +59,7 @@ func _physics_process(delta: float) -> void:
 		_apply_gravity(delta)
 		velocity.x = 0.0
 		move_and_slide()
+		_apply_player_overlap_push()
 		return
 
 	jump_cooldown_timer = maxf(jump_cooldown_timer - delta, 0.0)
@@ -71,11 +72,13 @@ func _physics_process(delta: float) -> void:
 
 	if _tick_knockback_stun(delta):
 		move_and_slide()
+		_apply_player_overlap_push()
 		return
 
 	if is_attacking():
 		_process_attack_movement(delta)
 		move_and_slide()
+		_apply_player_overlap_push()
 		return
 
 	_update_facing()
@@ -85,6 +88,7 @@ func _physics_process(delta: float) -> void:
 	bt_player.update(delta)
 
 	move_and_slide()
+	_apply_player_overlap_push()
 
 
 func _update_attack_hitbox() -> void:

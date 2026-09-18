@@ -71,12 +71,14 @@ func _physics_process(delta: float) -> void:
 		velocity.y += gravity * delta
 		velocity.y = clampf(velocity.y, -max_rise_speed, max_fall_speed)
 		move_and_slide()
+		_apply_player_overlap_push()
 		return
 
 	_tick_attack(delta)
 
 	if _tick_knockback_stun(delta):
 		move_and_slide()
+		_apply_player_overlap_push()
 		return
 
 	_update_attack_visual()
@@ -84,6 +86,7 @@ func _physics_process(delta: float) -> void:
 	if is_attacking():
 		_process_attack(delta)
 		move_and_slide()
+		_apply_player_overlap_push()
 		return
 
 	_apply_hover(delta)
@@ -93,6 +96,7 @@ func _physics_process(delta: float) -> void:
 		facing_direction = int(signf(velocity.x))
 
 	move_and_slide()
+	_apply_player_overlap_push()
 
 
 # Charging telegraph: flash red during STARTUP, same as Tusker.

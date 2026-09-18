@@ -149,7 +149,7 @@ root_task = SubResource("BTSelector_txqum")
 
 [node name="MeleeGroundEnemy" type="CharacterBody2D" unique_id=2004565075]
 collision_layer = 4
-collision_mask = 3
+collision_mask = 1
 script = ExtResource("1")
 max_health = 5.0
 contact_damage = 2

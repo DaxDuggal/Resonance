@@ -26,6 +26,15 @@ func set_flag(flag: int, value: bool) -> void:
 func is_invulnerable() -> bool:
 	return invulnerability_timer > 0.0 or dash_grace_timer > 0.0
 
+# Enemies never physically collide with the player (see project's collision
+# layer setup) — overlap is instead prevented by Enemy._apply_player_overlap_push,
+# a plain horizontal push done in script. This is what that push checks to
+# decide whether to pass through instead: invulnerability already means "no
+# damage," so no overlap-blocking either; parrying is the other explicit
+# exception (a parry window shouldn't be interrupted by a physical shove).
+func should_ignore_enemy_overlap() -> bool:
+	return is_invulnerable() or has_flag(Flag.PARRYING)
+
 @onready var sprite: AnimatedSprite2D = $AnimatedSprite2D
 @onready var timer: Timer = $Timer
 
@@ -82,6 +91,14 @@ var invulnerability_timer := 0.0
 var hit_flash_timer := 0.0
 @export var hit_flash_duration := 0.4
 @export var knockback_control_lock_time := 0.15
+
+@export_group("Body Push")
+# Half-extents used by Enemy._apply_player_overlap_push to keep the player
+# and enemies from ever occupying the same space, now that they don't
+# physically collide. Approximate the player's collision shape — tune here
+# rather than trying to read the CollisionShape2D's actual shape at runtime.
+@export var body_push_radius := 6.0
+@export var body_push_half_height := 9.0
 
 const ENEMY_HURTBOX_LAYER := 64  # project.godot layer_7 "EnemyHurtbox"
 
@@ -986,11 +1003,9 @@ func respawn() -> void:
 
 	respawn_lock_timer = respawn_lock_time
 
-	print("[respawn] time_scale=%.2f->0.85 (hitstop count=%d)" % [Engine.time_scale, Global._hitstop_count])  # TEMP DEBUG
 	Engine.time_scale = 0.85
 	await get_tree().create_timer(0.15 / Engine.time_scale).timeout
 	Engine.time_scale = 1.0
-	print("[respawn] time_scale->1.0 (hitstop count=%d)" % Global._hitstop_count)  # TEMP DEBUG
 
 func dead() -> void:
 	if has_flag(Flag.DEAD):
@@ -1001,7 +1016,6 @@ func dead() -> void:
 	current_health = max_health
 	Global.death_count += 1
 	Global.did_just_die = true
-	print("[dead] time_scale=%.2f->0.7 (hitstop count=%d)" % [Engine.time_scale, Global._hitstop_count])  # TEMP DEBUG
 	Engine.time_scale = 0.7
 	timer.start()
 

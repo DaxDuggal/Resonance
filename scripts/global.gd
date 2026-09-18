@@ -63,21 +63,12 @@ func hitstop(duration: float) -> void:
 	duration = minf(duration, 2.0)  # sanity cap — no legitimate hitstop is this long
 
 	_hitstop_count += 1
-	# TEMP DEBUG (remove once the mutual-hit freeze is nailed down): if two
-	# hits land the same frame, this should print two "start"s back to back
-	# with count 1 then 2, and two "end"s bringing it back to 0. If count
-	# ever stops decrementing back to 0, or time_scale gets set somewhere
-	# else in between (dead()/respawn() in player.gd both write it directly,
-	# outside this counter), that's the race.
-	print("[hitstop] start count=%d duration=%.3f time_scale=%.2f->0.0" % [_hitstop_count, duration, Engine.time_scale])
 	Engine.time_scale = 0.0
 	var timer := get_tree().create_timer(duration, true, false, true)
 	await timer.timeout
 	_hitstop_count = maxi(_hitstop_count - 1, 0)
-	print("[hitstop] end count=%d time_scale=%.2f" % [_hitstop_count, Engine.time_scale])
 	if _hitstop_count == 0:
 		Engine.time_scale = 1.0
-		print("[hitstop] time_scale->1.0")
 
 
 # Force-clears hitstop state and restores normal time flow — call this

@@ -8,6 +8,21 @@ var current_health := 5.0
 @export_group("Contact Damage")
 @export var contact_damage := 1
 
+@export_group("Body Push")
+# Physical body-to-body collision between the player and enemies is
+# deliberately not used (see collision_mask on Player/MeleeGroundEnemy) —
+# two CharacterBody2Ds ending up exactly stacked (e.g. the player standing
+# on an enemy's head during a mutual hit) sent move_and_slide()'s own
+# depenetration math into an unrecoverable zero-vector case, spamming
+# warnings until the engine's own error-rate limiter stalled the whole game
+# (the Sept 2026 freeze investigation). _apply_player_overlap_push replaces
+# that physical collision with a plain horizontal push done here in script,
+# where a dead-center overlap can just fall back to a direction instead of
+# crashing. Tune these to roughly match this enemy's collision shape rather
+# than reading it at runtime.
+@export var body_push_radius := 13.0
+@export var body_push_half_height := 11.0
+
 @export_group("Knockback")
 @export var knockback_stun_duration := 0.2
 var knockback_stun_timer := 0.0
@@ -35,6 +50,35 @@ func _tick_stun(delta: float) -> bool:
 		return false
 	stun_timer = maxf(stun_timer - delta, 0.0)
 	return true
+
+
+# Call every physics frame (subclasses call this after their own
+# move_and_slide()) so the player and this enemy never overlap, short of the
+# player being invulnerable or parrying (see Player.should_ignore_enemy_overlap,
+# where passing through is the point).
+func _apply_player_overlap_push() -> void:
+	var player := Global.player
+	if not player or is_dead:
+		return
+	if player.should_ignore_enemy_overlap():
+		return
+
+	var offset := global_position - player.global_position
+	var min_dist_x := body_push_radius + player.body_push_radius
+	var min_dist_y := body_push_half_height + player.body_push_half_height
+
+	if absf(offset.y) >= min_dist_y or absf(offset.x) >= min_dist_x:
+		return
+
+	# Dead-center overlap has no direction to push along — fall back to
+	# facing_direction instead of feeding sign() a zero and pushing nowhere.
+	var push_dir := signf(offset.x)
+	if push_dir == 0.0:
+		push_dir = 1.0 if facing_direction == 0 else float(facing_direction)
+
+	var half_push := (min_dist_x - absf(offset.x)) * 0.5
+	global_position.x += push_dir * half_push
+	player.global_position.x -= push_dir * half_push
 
 var is_dead := false
 
