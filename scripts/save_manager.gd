@@ -88,6 +88,10 @@ func load_game(slot: int) -> bool:
 	current_slot = slot
 	_apply_slot_data(cfg)
 
+	# A hitstop can still be mid-flight when the player chooses a save slot
+	# or restarts a run; clearing it before any scene transition prevents the
+	# next loaded scene from inheriting a frozen Engine.time_scale.
+	Global.reset_hitstop()
 	get_tree().change_scene_to_file(Global.last_checkpoint_scene)
 	return true
 

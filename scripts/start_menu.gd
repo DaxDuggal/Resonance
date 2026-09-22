@@ -4,6 +4,9 @@ extends Control
 # rect and two buttons for now, no art/layout pass yet.
 
 func _on_start_pressed() -> void:
+	# A hitstop can survive scene setup/teardown between menus and gameplay,
+	# so clear it before entering the game scene.
+	Global.reset_hitstop()
 	get_tree().change_scene_to_file("res://scenes/game.tscn")
 
 

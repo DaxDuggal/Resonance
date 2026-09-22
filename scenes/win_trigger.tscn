@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://lv15y1hnigch"]
+
+[ext_resource type="Script" uid="uid://0dwoosv70adl" path="res://scripts/win_trigger.gd" id="1_u5o0w"]
+
+[node name="Area2D" type="Area2D" unique_id=1903706295]
+script = ExtResource("1_u5o0w")

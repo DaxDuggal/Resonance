@@ -25,7 +25,13 @@ var current_health := 5.0
 
 @export_group("Knockback")
 @export var knockback_stun_duration := 0.2
+@export var knockback_multiplier := 1.0
+@export var can_be_interrupted_while_attacking := false
 var knockback_stun_timer := 0.0
+
+@export_group("Parry")
+@export var parry_duration := 0.18
+var parry_timer := 0.0
 
 # A full stop, distinct from knockback stun — no damage, no shove, just
 # unable to attack or move under its own power for stun_timer seconds.
@@ -38,17 +44,42 @@ var stun_timer := 0.0
 func stun(duration: float) -> void:
 	stun_timer = maxf(stun_timer, duration)
 	if is_attacking():
-		attack_phase = AttackPhase.NONE
-		attack_phase_timer = 0.0
-		if attack_hitbox_shape:
-			attack_hitbox_shape.disabled = true
-		if attack_profile:
-			attack_cooldown_timer = attack_profile.cooldown
+		_cancel_attack()
 
 func _tick_stun(delta: float) -> bool:
 	if stun_timer <= 0.0:
 		return false
 	stun_timer = maxf(stun_timer - delta, 0.0)
+	return true
+
+
+func _cancel_attack() -> void:
+	attack_phase = AttackPhase.NONE
+	attack_phase_timer = 0.0
+	if attack_hitbox_shape:
+		attack_hitbox_shape.disabled = true
+	if contact_hitbox_shape:
+		contact_hitbox_shape.disabled = false
+	if attack_profile:
+		attack_cooldown_timer = attack_profile.cooldown
+
+
+func _can_interrupt_current_attack() -> bool:
+	return can_be_interrupted_while_attacking or (attack_profile != null and attack_profile.can_be_interrupted)
+
+
+func _process(delta: float) -> void:
+	parry_timer = maxf(parry_timer - delta, 0.0)
+
+
+func is_parrying() -> bool:
+	return parry_timer > 0.0
+
+
+func start_parry() -> bool:
+	if is_dead or is_attacking() or is_parrying():
+		return false
+	parry_timer = parry_duration
 	return true
 
 
@@ -111,12 +142,14 @@ var attack_cooldown_timer := 0.0
 @export var close_range_awareness := 70.0
 @export var awareness_memory_time := 0.6
 @export var aggro_leash_range := 900.0
+@export var aggro_loss_delay := 10.0
 @export var debug_show_awareness := true
 
 var facing_direction := 1
 var is_aware_of_player := false
 var has_aggro := false
 var _awareness_memory_timer := 0.0
+var _aggro_loss_timer := 0.0
 
 @onready var attack_hitbox: DamageHitbox = get_node_or_null("AttackHitbox")
 @onready var attack_hitbox_shape: CollisionShape2D = get_node_or_null("AttackHitbox/CollisionShape2D")
@@ -215,8 +248,11 @@ func _update_awareness(delta: float) -> void:
 
 	if has_aggro:
 		if not Global.player or global_position.distance_to(Global.player.global_position) > aggro_leash_range:
-			has_aggro = false
+			_aggro_loss_timer = maxf(_aggro_loss_timer - delta, 0.0)
+			if _aggro_loss_timer <= 0.0:
+				has_aggro = false
 		else:
+			_aggro_loss_timer = aggro_loss_delay
 			is_aware_of_player = true
 
 	if debug_show_awareness:
@@ -263,9 +299,8 @@ func _draw() -> void:
 # "screen_exited" signal, so going off-screen currently resets tracking rather
 # than just pausing it (it comes back with a clean slate next time it's seen).
 func _clear_aggro() -> void:
-	has_aggro = false
-	is_aware_of_player = false
-	_awareness_memory_timer = 0.0
+	if has_aggro:
+		_aggro_loss_timer = aggro_loss_delay
 
 
 func _can_see_player() -> bool:
@@ -319,18 +354,22 @@ func take_damage(amount: float, knockback: Vector2 = Vector2.ZERO) -> void:
 
 	current_health = maxf(current_health - amount, 0.0)
 
-	# Mid-attack (lunge/dive), knockback is ignored entirely — otherwise a
-	# parry or a stray hit mid-swing shoves it off its attack path/timing,
-	# which reads as the attack just breaking rather than committing.
-	if knockback != Vector2.ZERO and not is_attacking():
-		velocity += knockback
-		knockback_stun_timer = knockback_stun_duration
+	# Mid-attack knockback is ignored by default so a hit or parry does not
+	# break a committed attack. Tanky enemies/attacks can opt into interruption
+	# through can_be_interrupted_while_attacking or AttackProfile.
+	if knockback != Vector2.ZERO:
+		if is_attacking() and _can_interrupt_current_attack():
+			_cancel_attack()
+		if not is_attacking():
+			velocity += knockback * knockback_multiplier
+			knockback_stun_timer = knockback_stun_duration
 
 	# Getting hit always alerts the agent, even from outside its sight cone
 	# (a surprise attack from behind still gives away your position).
 	has_aggro = true
 	is_aware_of_player = true
 	_awareness_memory_timer = awareness_memory_time
+	_aggro_loss_timer = aggro_loss_delay
 
 	if current_health <= 0.0:
 		die()

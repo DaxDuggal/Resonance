@@ -396,6 +396,7 @@ position = Vector2(293, 26)
 
 [node name="Camera2D" type="Camera2D" parent="player" unique_id=1494614660]
 physics_interpolation_mode = 1
+top_level = true
 position = Vector2(725, 494)
 zoom = Vector2(2, 2)
 limit_left = 0

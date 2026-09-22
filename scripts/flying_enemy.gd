@@ -3,7 +3,7 @@ class_name FlyingEnemy
 
 @export_group("Movement")
 @export var move_speed := 130.0
-@export var hover_height := 90.0
+@export var hover_height := 55.0
 @export var gravity := 220.0
 @export var hop_impulse := 150.0
 @export var hop_rise_drag := 400.0
@@ -18,12 +18,28 @@ class_name FlyingEnemy
 var _spawn_y := 0.0
 var hop_timer := 0.0
 
+@export_group("Swipe Attack")
+@export var swipe_range := 72.0
+@export var swipe_trigger_range := 150.0
+@export var swipe_vertical_tolerance := 55.0
+@export var swipe_hitbox_offset := 18.0
+@export var swipe_approach_speed := 200.0
+@export var swipe_vertical_approach_speed := 420.0
+@export var swipe_startup_duration := 0.28
+@export var swipe_active_duration := 0.16
+@export var swipe_recovery_duration := 0.28
+
 @export_group("Dive Attack")
-@export var dive_drop_distance := 117.0
-@export var dive_horizontal_distance := 152.0
-@export var dive_trigger_min_x := 70.0
-@export var dive_trigger_range := 234.0
-@export var min_chase_distance := 133.0
+@export var dive_horizontal_distance := 200.0
+@export var dive_trigger_min_x := 50.0
+@export var dive_trigger_range := 500.0
+@export var dive_rise_height := 50.0
+@export var dive_rise_speed := 330.0
+@export var dive_below_hover_distance := 50.0
+@export var min_chase_distance := 30.0
+
+enum FlyingAttack { NONE, SWIPE, DIVE }
+var selected_attack := FlyingAttack.NONE
 
 var _dive_launched := false
 var _dive_p0 := Vector2.ZERO
@@ -34,11 +50,20 @@ var _dive_p3 := Vector2.ZERO
 @onready var visual: Polygon2D = $Placeholder
 @onready var ground_ray: RayCast2D = $GroundRay
 @onready var bt_player: BTPlayer = $BTPlayer
+@onready var swipe_hitbox: DamageHitbox = $SwipeHitbox
+@onready var swipe_hitbox_shape: CollisionShape2D = $SwipeHitbox/CollisionShape2D
+@onready var swipe_hitbox_visual: ColorRect = $SwipeHitbox/CollisionShape2D/Visual
 
 
 func _ready() -> void:
 	super._ready()
 	_spawn_y = global_position.y
+	swipe_hitbox.damage = attack_profile.damage
+	swipe_hitbox.knockback_force = attack_profile.knockback_force
+	swipe_hitbox.knockback_vertical_ratio = attack_profile.knockback_vertical_ratio
+	swipe_hitbox.is_parryable = attack_profile.is_parryable
+	_update_swipe_hitbox_transform()
+	_sync_swipe_hitbox_visual()
 	# BT now owns the horizontal decision (back away/chase/hold) and attack
 	# triggering (AttackReady -> StartAttack) — see the leaves under
 	# scripts/bt/. Default AUTO update_mode would tick it a second time on
@@ -94,6 +119,7 @@ func _physics_process(delta: float) -> void:
 
 	if absf(velocity.x) > 5.0:
 		facing_direction = int(signf(velocity.x))
+		_update_swipe_hitbox_transform()
 
 	move_and_slide()
 	_apply_player_overlap_push()
@@ -102,6 +128,36 @@ func _physics_process(delta: float) -> void:
 # Charging telegraph: flash red during STARTUP, same as Tusker.
 func _update_attack_visual() -> void:
 	visual.modulate = Color(1.0, 0.3, 0.3) if attack_phase == AttackPhase.STARTUP else Color.WHITE
+	swipe_hitbox_visual.visible = selected_attack == FlyingAttack.SWIPE and attack_phase == AttackPhase.ACTIVE
+
+
+func _sync_swipe_hitbox_visual() -> void:
+	var rectangle := swipe_hitbox_shape.shape as RectangleShape2D
+	if rectangle == null:
+		return
+	swipe_hitbox_visual.position = -rectangle.size * 0.5
+	swipe_hitbox_visual.size = rectangle.size
+
+
+func _update_swipe_hitbox_transform() -> void:
+	swipe_hitbox.position.x = absf(swipe_hitbox_offset) * facing_direction
+	swipe_hitbox_shape.position.x = absf(swipe_hitbox_shape.position.x) * facing_direction
+
+
+func stun(duration: float) -> void:
+	super.stun(duration)
+	if swipe_hitbox_shape:
+		swipe_hitbox_shape.disabled = true
+	if swipe_hitbox_visual:
+		swipe_hitbox_visual.visible = false
+
+
+func _cancel_attack() -> void:
+	super._cancel_attack()
+	if swipe_hitbox_shape:
+		swipe_hitbox_shape.disabled = true
+	if swipe_hitbox_visual:
+		swipe_hitbox_visual.visible = false
 
 
 # Vertical-only now — horizontal movement (back away/chase/hold) moved to
@@ -140,7 +196,7 @@ func _player_too_close() -> bool:
 	if not _player_in_range():
 		return false
 	var distance_x := absf(Global.player.global_position.x - global_position.x)
-	return distance_x < dive_trigger_min_x
+	return distance_x < swipe_range
 
 
 func _player_too_far() -> bool:
@@ -164,24 +220,40 @@ static func _bezier_derivative(p0: Vector2, p1: Vector2, p2: Vector2, p3: Vector
 
 
 # Fixed, precomputed 4-point Bezier curve rather than a physics/floor
-# reaction, so the dive always dips the same shallow amount and returns to
-# launch height (P3 mirrors P0). P1/P2 sit at dive_drop_distance a quarter
-# and three-quarters across, giving a flattened "hangs at the bottom"
-# middle instead of a sharp V.
-#
-# Note: dive_drop_distance is the *control point's* offset, not the curve's
-# actual lowest point. For this P1=P2 layout, true depth = 0.75 *
-# dive_drop_distance (117 -> ~88px, the tuned range).
+# reaction. P1/P2 use a shared control-point height, giving a flattened
+# "hangs at the bottom" middle instead of a sharp V. The control-point height
+# includes the rise height, so the curve's actual low point passes below the
+# normal hover line before returning to launch height (P3 mirrors P0).
 #
 # Direction is locked in at launch, not homed on the player mid-dive.
 # RECOVERY lets gravity settle it back into _apply_hover once the attack ends.
 func _process_attack(delta: float) -> void:
 	match attack_phase:
 		AttackPhase.STARTUP:
-			velocity = Vector2.ZERO
+			if selected_attack == FlyingAttack.DIVE:
+				velocity.x = 0.0
+				var rise_target_y := _spawn_y - dive_rise_height
+				velocity.y = -dive_rise_speed if global_position.y > rise_target_y else 0.0
+			elif selected_attack == FlyingAttack.SWIPE:
+				var approach_direction := float(facing_direction)
+				if Global.player:
+					var to_player_x := Global.player.global_position.x - global_position.x
+					if absf(to_player_x) > 1.0:
+						approach_direction = signf(to_player_x)
+						facing_direction = int(approach_direction)
+				_update_swipe_hitbox_transform()
+				velocity.x = approach_direction * swipe_approach_speed
+				var vertical_difference := Global.player.global_position.y - global_position.y if Global.player else 0.0
+				velocity.y = clampf(vertical_difference / attack_phase_timer, -swipe_vertical_approach_speed, swipe_vertical_approach_speed)
+			else:
+				velocity = Vector2.ZERO
 			_dive_launched = false
 			hop_timer = 0.0
 		AttackPhase.ACTIVE:
+			if selected_attack == FlyingAttack.SWIPE:
+				velocity = Vector2.ZERO
+				return
+
 			if not _dive_launched:
 				var dir := 1.0
 				if Global.player:
@@ -191,8 +263,12 @@ func _process_attack(delta: float) -> void:
 				facing_direction = int(signf(dir))
 
 				_dive_p0 = Vector2.ZERO
-				_dive_p1 = Vector2(dir * dive_horizontal_distance * 0.25, dive_drop_distance)
-				_dive_p2 = Vector2(dir * dive_horizontal_distance * 0.75, dive_drop_distance)
+				# The control-point offset includes the height gained during
+				# startup, so the curve's real low point passes below the
+				# normal hover line instead of ending above the player.
+				var dive_control_y := (dive_rise_height + dive_below_hover_distance) / 0.75
+				_dive_p1 = Vector2(dir * dive_horizontal_distance * 0.25, dive_control_y)
+				_dive_p2 = Vector2(dir * dive_horizontal_distance * 0.75, dive_control_y)
 				_dive_p3 = Vector2(dir * dive_horizontal_distance, 0.0)
 				_dive_launched = true
 
@@ -217,18 +293,81 @@ func _player_in_range() -> bool:
 	return is_aware_of_player
 
 
+func _is_swipe_ready() -> bool:
+	if not can_start_attack() or not _player_in_range():
+		return false
+	var to_player := Global.player.global_position - global_position
+	if absf(to_player.x) > 1.0:
+		facing_direction = int(signf(to_player.x))
+	_update_swipe_hitbox_transform()
+	return absf(to_player.x) <= swipe_trigger_range and absf(to_player.y) <= swipe_vertical_tolerance
+
+
+func start_swipe() -> bool:
+	if not _is_swipe_ready():
+		return false
+	selected_attack = FlyingAttack.SWIPE
+	_update_swipe_hitbox_transform()
+	attack_phase = AttackPhase.STARTUP
+	attack_phase_timer = swipe_startup_duration
+	if contact_hitbox_shape:
+		contact_hitbox_shape.disabled = true
+	return true
+
+
+func _is_dive_ready() -> bool:
+	if not can_start_attack() or not _player_in_range():
+		return false
+	var distance_x := absf(Global.player.global_position.x - global_position.x)
+	return distance_x >= dive_trigger_min_x and distance_x <= dive_trigger_range
+
+
+func start_dive() -> bool:
+	if not _is_dive_ready():
+		return false
+	selected_attack = FlyingAttack.DIVE
+	start_attack()
+	return is_attacking()
+
+
+# Swipe uses the same shared attack phases as the base class, but has its own
+# short timing so it reads as a quick close-range attack instead of reusing
+# the dive's longer profile.
+func _tick_attack(delta: float) -> void:
+	if selected_attack != FlyingAttack.SWIPE:
+		super._tick_attack(delta)
+		return
+
+	attack_cooldown_timer = maxf(attack_cooldown_timer - delta, 0.0)
+	if attack_phase == AttackPhase.NONE:
+		return
+
+	attack_phase_timer = maxf(attack_phase_timer - delta, 0.0)
+	if attack_phase_timer > 0.0:
+		return
+
+	match attack_phase:
+		AttackPhase.STARTUP:
+			attack_phase = AttackPhase.ACTIVE
+			attack_phase_timer = swipe_active_duration
+			if swipe_hitbox_shape:
+				swipe_hitbox_shape.disabled = false
+		AttackPhase.ACTIVE:
+			attack_phase = AttackPhase.RECOVERY
+			attack_phase_timer = swipe_recovery_duration
+			if swipe_hitbox_shape:
+				swipe_hitbox_shape.disabled = true
+		AttackPhase.RECOVERY:
+			attack_phase = AttackPhase.NONE
+			attack_cooldown_timer = attack_profile.cooldown
+			if contact_hitbox_shape:
+				contact_hitbox_shape.disabled = false
+			selected_attack = FlyingAttack.NONE
+
+
 # Plain cooldown/awareness/horizontal-range check, ticked every BT frame via
 # the AttackReady leaf (bt_attack_ready.gd) — same pattern as
 # MeleeGroundEnemy. No hop-timing requirement: it can trigger the instant
 # these conditions are true, not just right as a hop peaks.
 func _is_attack_ready() -> bool:
-	if not can_start_attack():
-		return false
-	if not _player_in_range():
-		return false
-	var to_player := Global.player.global_position - global_position
-	if absf(to_player.x) < dive_trigger_min_x:
-		return false
-	if absf(to_player.x) > dive_trigger_range:
-		return false
-	return true
+	return _is_dive_ready()

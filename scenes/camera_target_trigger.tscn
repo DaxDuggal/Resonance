@@ -1,0 +1,27 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://scripts/camera_target_trigger.gd" id="1_script"]
+[ext_resource type="Script" path="res://addons/phantom_camera/scripts/phantom_camera/phantom_camera_2d.gd" id="2_pcam"]
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_trigger"]
+resource_local_to_scene = true
+size = Vector2(256, 256)
+
+[node name="CameraTargetTrigger" type="Area2D"]
+collision_layer = 0
+collision_mask = 2
+script = ExtResource("1_script")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+shape = SubResource("RectangleShape2D_trigger")
+
+[node name="CameraTarget" type="Marker2D" parent="."]
+
+[node name="PhantomCamera2D" type="Node2D" parent="."]
+top_level = true
+follow_mode = 2
+follow_damping = true
+follow_damping_value = Vector2(0.15, 0.1)
+tween_on_load = false
+script = ExtResource("2_pcam")
+metadata/_custom_type_script = "uid://bhexx6mj1xv3q"

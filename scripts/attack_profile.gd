@@ -10,3 +10,4 @@ class_name AttackProfile
 @export var knockback_force := 200.0
 @export var knockback_vertical_ratio := 0.35
 @export var is_parryable := true
+@export var can_be_interrupted := false
