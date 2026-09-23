@@ -29,18 +29,11 @@ func is_invulnerable() -> bool:
 # Enemies never physically collide with the player (see project's collision
 # layer setup) — overlap is instead prevented by Enemy._apply_player_overlap_push,
 # a plain horizontal push done in script. This is what that push checks to
-# decide whether to pass through instead. Deliberately narrower than
-# is_invulnerable(): dash_grace_timer covers the dash itself (and its short
-# tail) where passing through enemies is the point, and parrying is the
-# other explicit exception (a parry window shouldn't be interrupted by a
-# physical shove). Ordinary post-hit/respawn invulnerability_timer is NOT
-# included here on purpose — being unable to take damage for a moment
-# shouldn't also make you intangible, or an enemy mid-lunge sails straight
-# through you instead of being blocked (the Sept 2026 "enemy goes through
-# me" bug: take_damage() grants 0.75s of invulnerability on every hit, which
-# used to suppress the push for that whole window).
+# decide whether to pass through instead. Parrying is the explicit exception:
+# its invulnerability should also let the player avoid the scripted body push.
+# Dashing does not grant invulnerability or intangibility.
 func should_ignore_enemy_overlap() -> bool:
-	return dash_grace_timer > 0.0 or has_flag(Flag.PARRYING)
+	return has_flag(Flag.PARRYING)
 
 @onready var sprite: AnimatedSprite2D = $AnimatedSprite2D
 @onready var timer: Timer = $Timer
@@ -800,7 +793,7 @@ func _apply_movement(delta: float) -> void:
 		params.from = global_position
 		params.to = next_pos
 		params.exclude = [self]
-		params.collision_mask = 1  # world only — dash is invulnerable, shouldn't be stopped by enemies
+		params.collision_mask = 1  # world only
 		var hit = space.intersect_ray(params)
 		if hit and hit.has("position"):
 			var hit_normal: Vector2 = hit.get("normal", Vector2.ZERO)
@@ -820,7 +813,7 @@ func _apply_movement(delta: float) -> void:
 
 	if has_flag(Flag.DASHING):
 		motion_mode = CharacterBody2D.MOTION_MODE_FLOATING
-		move_and_slide()
+		_move_dash_with_overlap_checks()
 		motion_mode = CharacterBody2D.MOTION_MODE_GROUNDED
 	else:
 		move_and_slide()
@@ -848,6 +841,18 @@ func _apply_movement(delta: float) -> void:
 
 	if sprite.modulate != target_modulate:
 		sprite.modulate = target_modulate
+
+
+func _move_dash_with_overlap_checks() -> void:
+	var dash_velocity := velocity
+	var step_count := maxi(ceili(dash_velocity.length() * get_physics_process_delta_time() / 12.0), 1)
+	velocity = dash_velocity / float(step_count)
+	for _step in range(step_count):
+		move_and_slide()
+		for enemy in get_tree().get_nodes_in_group("enemies"):
+			if enemy.has_method("_apply_player_overlap_push"):
+				enemy.call("_apply_player_overlap_push")
+	velocity = dash_velocity
 
 
 func update_wall_detection() -> void:

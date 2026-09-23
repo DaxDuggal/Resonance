@@ -31,7 +31,15 @@ var knockback_stun_timer := 0.0
 
 @export_group("Parry")
 @export var parry_duration := 0.18
+@export var parry_damage_multiplier := 0.5
+@export var parry_knockback_multiplier := 0.25
+@export var parry_stun_duration := 0.05
+@export var parry_flash_duration := 0.15
 var parry_timer := 0.0
+var parry_flash_timer := 0.0
+
+@export_group("Hurt")
+@export var player_hit_hitstop_frames := 5
 
 # A full stop, distinct from knockback stun — no damage, no shove, just
 # unable to attack or move under its own power for stun_timer seconds.
@@ -70,6 +78,9 @@ func _can_interrupt_current_attack() -> bool:
 
 func _process(delta: float) -> void:
 	parry_timer = maxf(parry_timer - delta, 0.0)
+	parry_flash_timer = maxf(parry_flash_timer - delta, 0.0)
+	if not is_parrying() and (not Global.player or not Global.player.has_flag(Player.Flag.ATTACKING)):
+		_on_parry_sequence_break()
 
 
 func is_parrying() -> bool:
@@ -77,10 +88,37 @@ func is_parrying() -> bool:
 
 
 func start_parry() -> bool:
-	if is_dead or is_attacking() or is_parrying():
+	if not can_start_parry():
 		return false
 	parry_timer = parry_duration
+	parry_flash_timer = parry_duration
 	return true
+
+
+func can_start_parry() -> bool:
+	return not is_dead and not is_attacking() and not is_parrying()
+
+
+func _consume_parry_hit() -> bool:
+	if not is_parrying():
+		return false
+	return true
+
+
+func is_parry_flashing() -> bool:
+	return parry_flash_timer > 0.0
+
+
+func _on_parry_sequence_break() -> void:
+	pass
+
+
+func _can_auto_parry_player_hit() -> bool:
+	return false
+
+
+func _on_auto_parry_player_hit() -> void:
+	pass
 
 
 # Call every physics frame (subclasses call this after their own
@@ -163,6 +201,7 @@ func _get_world_state_id() -> String:
 
 
 func _ready() -> void:
+	add_to_group("enemies")
 	if WorldState.is_resolved(_get_world_state_id()):
 		is_dead = true
 		queue_free()
@@ -337,6 +376,12 @@ func _has_clear_sight_line() -> bool:
 func _on_hurtbox_area_entered(area: Area2D) -> void:
 	if area is DamageHitbox:
 		var hitbox := area as DamageHitbox
+		var auto_parried := hitbox.is_parryable and _can_auto_parry_player_hit()
+		if auto_parried:
+			_on_auto_parry_player_hit()
+		await Global.hitstop(Global.frames_to_seconds(player_hit_hitstop_frames))
+		if is_dead or not is_instance_valid(hitbox):
+			return
 		var knockback_dir: Vector2
 		if hitbox.knockback_direction_override != Vector2.ZERO:
 			knockback_dir = hitbox.knockback_direction_override.normalized()
@@ -345,12 +390,24 @@ func _on_hurtbox_area_entered(area: Area2D) -> void:
 			var horizontal_dir := signf(away_x) if absf(away_x) > 1.0 else 1.0
 			knockback_dir = Vector2(horizontal_dir, -hitbox.knockback_vertical_ratio).normalized()
 		var knockback := knockback_dir * hitbox.knockback_force
-		take_damage(hitbox.damage, knockback)
+		take_damage(hitbox.damage, knockback, hitbox.is_parryable, true, auto_parried)
 
 
-func take_damage(amount: float, knockback: Vector2 = Vector2.ZERO) -> void:
+func take_damage(amount: float, knockback: Vector2 = Vector2.ZERO, parryable := true, from_player := false, auto_parried := false) -> void:
 	if is_dead:
 		return
+
+	var was_parried := parryable and (_consume_parry_hit() or auto_parried)
+	if not was_parried and parryable and from_player and _can_auto_parry_player_hit():
+		_on_auto_parry_player_hit()
+		was_parried = true
+	var applied_knockback_stun_duration := knockback_stun_duration
+	if was_parried:
+		amount *= parry_damage_multiplier
+		knockback *= parry_knockback_multiplier
+		applied_knockback_stun_duration = parry_stun_duration
+	else:
+		_on_parry_sequence_break()
 
 	current_health = maxf(current_health - amount, 0.0)
 
@@ -362,7 +419,7 @@ func take_damage(amount: float, knockback: Vector2 = Vector2.ZERO) -> void:
 			_cancel_attack()
 		if not is_attacking():
 			velocity += knockback * knockback_multiplier
-			knockback_stun_timer = knockback_stun_duration
+			knockback_stun_timer = applied_knockback_stun_duration
 
 	# Getting hit always alerts the agent, even from outside its sight cone
 	# (a surprise attack from behind still gives away your position).

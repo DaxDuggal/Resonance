@@ -3,7 +3,7 @@ class_name FlyingEnemy
 
 @export_group("Movement")
 @export var move_speed := 130.0
-@export var hover_height := 55.0
+@export var hover_height := 40.0
 @export var gravity := 220.0
 @export var hop_impulse := 150.0
 @export var hop_rise_drag := 400.0
@@ -20,9 +20,8 @@ var hop_timer := 0.0
 
 @export_group("Swipe Attack")
 @export var swipe_range := 72.0
-@export var swipe_trigger_range := 150.0
+@export var swipe_trigger_range := 100.0
 @export var swipe_vertical_tolerance := 55.0
-@export var swipe_hitbox_offset := 18.0
 @export var swipe_approach_speed := 200.0
 @export var swipe_vertical_approach_speed := 420.0
 @export var swipe_startup_duration := 0.28
@@ -46,6 +45,8 @@ var _dive_p0 := Vector2.ZERO
 var _dive_p1 := Vector2.ZERO
 var _dive_p2 := Vector2.ZERO
 var _dive_p3 := Vector2.ZERO
+var _swipe_hitbox_editor_position := Vector2.ZERO
+var _swipe_hitbox_shape_editor_position := Vector2.ZERO
 
 @onready var visual: Polygon2D = $Placeholder
 @onready var ground_ray: RayCast2D = $GroundRay
@@ -58,6 +59,8 @@ var _dive_p3 := Vector2.ZERO
 func _ready() -> void:
 	super._ready()
 	_spawn_y = global_position.y
+	_swipe_hitbox_editor_position = swipe_hitbox.position
+	_swipe_hitbox_shape_editor_position = swipe_hitbox_shape.position
 	swipe_hitbox.damage = attack_profile.damage
 	swipe_hitbox.knockback_force = attack_profile.knockback_force
 	swipe_hitbox.knockback_vertical_ratio = attack_profile.knockback_vertical_ratio
@@ -65,7 +68,7 @@ func _ready() -> void:
 	_update_swipe_hitbox_transform()
 	_sync_swipe_hitbox_visual()
 	# BT now owns the horizontal decision (back away/chase/hold) and attack
-	# triggering (AttackReady -> StartAttack) — see the leaves under
+	# triggering (BasicAttack/SpecialAttack) — see the leaves under
 	# scripts/bt/. Default AUTO update_mode would tick it a second time on
 	# top of our explicit call below, so force MANUAL and tick it ourselves
 	# at the right point in _physics_process (same reason MeleeGroundEnemy
@@ -140,8 +143,14 @@ func _sync_swipe_hitbox_visual() -> void:
 
 
 func _update_swipe_hitbox_transform() -> void:
-	swipe_hitbox.position.x = absf(swipe_hitbox_offset) * facing_direction
-	swipe_hitbox_shape.position.x = absf(swipe_hitbox_shape.position.x) * facing_direction
+	swipe_hitbox.position = _mirrored_position(_swipe_hitbox_editor_position)
+	swipe_hitbox_shape.position = _mirrored_position(_swipe_hitbox_shape_editor_position)
+
+
+func _mirrored_position(editor_position: Vector2) -> Vector2:
+	var mirrored := editor_position
+	mirrored.x = absf(editor_position.x) * facing_direction
+	return mirrored
 
 
 func stun(duration: float) -> void:
@@ -319,6 +328,7 @@ func _is_dive_ready() -> bool:
 	if not can_start_attack() or not _player_in_range():
 		return false
 	var distance_x := absf(Global.player.global_position.x - global_position.x)
+	_face_player()
 	return distance_x >= dive_trigger_min_x and distance_x <= dive_trigger_range
 
 
@@ -328,6 +338,32 @@ func start_dive() -> bool:
 	selected_attack = FlyingAttack.DIVE
 	start_attack()
 	return is_attacking()
+
+
+func _is_basic_attack_ready() -> bool:
+	return _is_swipe_ready()
+
+
+func start_basic_attack() -> bool:
+	return start_swipe()
+
+
+func _is_special_attack_ready() -> bool:
+	return _is_dive_ready()
+
+
+func start_special_attack() -> bool:
+	return start_dive()
+
+
+func _face_player() -> void:
+	if not Global.player:
+		return
+	var to_player_x := Global.player.global_position.x - global_position.x
+	if absf(to_player_x) <= 1.0:
+		return
+	facing_direction = int(signf(to_player_x))
+	_update_swipe_hitbox_transform()
 
 
 # Swipe uses the same shared attack phases as the base class, but has its own
@@ -366,7 +402,7 @@ func _tick_attack(delta: float) -> void:
 
 
 # Plain cooldown/awareness/horizontal-range check, ticked every BT frame via
-# the AttackReady leaf (bt_attack_ready.gd) — same pattern as
+# the shared attack readiness leaves — same pattern as
 # MeleeGroundEnemy. No hop-timing requirement: it can trigger the instant
 # these conditions are true, not just right as a hop peaks.
 func _is_attack_ready() -> bool:

@@ -1,19 +1,24 @@
 [gd_scene format=3 uid="uid://cpiphvasrms15"]
 
-[ext_resource type="Script" uid="uid://c1y6j32ua3i80" path="res://scripts/melee_ground_enemy.gd" id="1"]
-[ext_resource type="Script" uid="uid://dano3qelwypyt" path="res://scripts/damage_hitbox.gd" id="2"]
+[ext_resource type="Script" path="res://scripts/melee_ground_enemy.gd" id="1"]
+[ext_resource type="Script" path="res://scripts/damage_hitbox.gd" id="2"]
 [ext_resource type="Texture2D" uid="uid://da0a0116l1mw5" path="res://assets/sprites/slime_green.png" id="2_7sbxu"]
-[ext_resource type="Script" uid="uid://wo30m1ykm0l" path="res://scripts/bt/bt_player_in_range.gd" id="4_c44ni"]
-[ext_resource type="Script" uid="uid://jcrd2bwcq7sm" path="res://scripts/bt/bt_attack_ready.gd" id="5_ct1ls"]
-[ext_resource type="Script" uid="uid://co71w6mqr84kg" path="res://scripts/bt/bt_start_attack.gd" id="6_ksrcv"]
-[ext_resource type="Script" uid="uid://dl8hnqkg8bddl" path="res://scripts/bt/bt_jump.gd" id="7_b1bc8"]
-[ext_resource type="Script" uid="uid://lw7cgp8m0kfr" path="res://scripts/bt/bt_player_overhead.gd" id="7_ksrcv"]
-[ext_resource type="Script" uid="uid://c6o5ck82jh6dj" path="res://scripts/bt/bt_forward_blocked.gd" id="8_b1kfy"]
-[ext_resource type="Script" uid="uid://7j0vitkoiu0i" path="res://scripts/bt/bt_obstacle_too_tall.gd" id="9_4bc8t"]
-[ext_resource type="Script" uid="uid://bn8r6hdln3utk" path="res://scripts/bt/bt_turn_around.gd" id="10_2pu5q"]
-[ext_resource type="Script" uid="uid://clg2nvpa50wlb" path="res://scripts/bt/bt_halt_horizontal.gd" id="11_0hn4l"]
-[ext_resource type="Script" uid="uid://b0hu34wjk3i3s" path="res://scripts/bt/bt_at_ledge.gd" id="12_l6idw"]
-[ext_resource type="Script" uid="uid://dbjkxct8impdp" path="res://scripts/bt/bt_walk.gd" id="13_qsx4c"]
+[ext_resource type="Script" path="res://scripts/bt/bt_player_in_range.gd" id="4_c44ni"]
+[ext_resource type="Script" path="res://scripts/bt/bt_basic_attack_ready.gd" id="5_uj14m"]
+[ext_resource type="Script" path="res://scripts/bt/bt_player_attacking.gd" id="5_xbtu5"]
+[ext_resource type="Script" path="res://scripts/bt/bt_parry_ready.gd" id="6_r7s4w"]
+[ext_resource type="Script" path="res://scripts/bt/bt_basic_attack.gd" id="6_wcftb"]
+[ext_resource type="Script" path="res://scripts/bt/bt_jump.gd" id="7_b1bc8"]
+[ext_resource type="Script" path="res://scripts/bt/bt_special_attack_ready.gd" id="7_ixq1v"]
+[ext_resource type="Script" path="res://scripts/bt/bt_player_overhead.gd" id="7_ksrcv"]
+[ext_resource type="Script" path="res://scripts/bt/bt_parry.gd" id="7_tt4lm"]
+[ext_resource type="Script" path="res://scripts/bt/bt_forward_blocked.gd" id="8_b1kfy"]
+[ext_resource type="Script" path="res://scripts/bt/bt_special_attack.gd" id="8_xbtu5"]
+[ext_resource type="Script" path="res://scripts/bt/bt_obstacle_too_tall.gd" id="9_4bc8t"]
+[ext_resource type="Script" path="res://scripts/bt/bt_turn_around.gd" id="10_2pu5q"]
+[ext_resource type="Script" path="res://scripts/bt/bt_halt_horizontal.gd" id="11_0hn4l"]
+[ext_resource type="Script" path="res://scripts/bt/bt_at_ledge.gd" id="12_l6idw"]
+[ext_resource type="Script" path="res://scripts/bt/bt_walk.gd" id="13_qsx4c"]
 [ext_resource type="Resource" uid="uid://vv22rp6u6xfv" path="res://resources/attack_profiles/tusker_swipe.tres" id="15_atkprof"]
 
 [sub_resource type="AtlasTexture" id="AtlasTexture_c44ni"]
@@ -59,18 +64,42 @@ size = Vector2(22, 17.206707)
 size = Vector2(22, 19.357042)
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_attackhitbox"]
-size = Vector2(29.100956, 28.405258)
+size = Vector2(55.291817, 22.70263)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_lungehitbox"]
+size = Vector2(70.33333, 45.9527)
 
 [sub_resource type="BlackboardPlan" id="BlackboardPlan_q5o84"]
 
-[sub_resource type="BTCondition" id="BTCondition_sdbn6"]
-script = ExtResource("5_ct1ls")
+[sub_resource type="BTCondition" id="BTCondition_cfspq"]
+script = ExtResource("5_xbtu5")
 
-[sub_resource type="BTAction" id="BTAction_uj14m"]
-script = ExtResource("6_ksrcv")
+[sub_resource type="BTCondition" id="BTCondition_5pvf0"]
+script = ExtResource("6_r7s4w")
+
+[sub_resource type="BTAction" id="BTAction_v2vop"]
+script = ExtResource("7_tt4lm")
+
+[sub_resource type="BTDynamicSequence" id="BTDynamicSequence_vymvh"]
+children = [SubResource("BTCondition_cfspq"), SubResource("BTCondition_5pvf0"), SubResource("BTAction_v2vop")]
+
+[sub_resource type="BTCondition" id="BTCondition_r7s4w"]
+script = ExtResource("5_uj14m")
+
+[sub_resource type="BTAction" id="BTAction_tt4lm"]
+script = ExtResource("6_wcftb")
 
 [sub_resource type="BTDynamicSequence" id="BTDynamicSequence_wcftb"]
-children = [SubResource("BTCondition_sdbn6"), SubResource("BTAction_uj14m")]
+children = [SubResource("BTCondition_r7s4w"), SubResource("BTAction_tt4lm")]
+
+[sub_resource type="BTCondition" id="BTCondition_xasw5"]
+script = ExtResource("7_ixq1v")
+
+[sub_resource type="BTAction" id="BTAction_cfspq"]
+script = ExtResource("8_xbtu5")
+
+[sub_resource type="BTDynamicSequence" id="BTDynamicSequence_5pvf0"]
+children = [SubResource("BTCondition_xasw5"), SubResource("BTAction_cfspq")]
 
 [sub_resource type="BTCondition" id="BTCondition_uj14m"]
 script = ExtResource("7_ksrcv")
@@ -139,7 +168,7 @@ children = [SubResource("BTCondition_43a6a"), SubResource("BTAction_sqw86")]
 script = ExtResource("11_0hn4l")
 
 [sub_resource type="BTDynamicSelector" id="BTSelector_txqum"]
-children = [SubResource("BTDynamicSequence_wcftb"), SubResource("BTDynamicSequence_ixq1v"), SubResource("BTSequence_mnk1g"), SubResource("BTSequence_n84fg"), SubResource("BTSequence_mssqu"), SubResource("BTSequence_x8oaa"), SubResource("BTSequence_e2a5l"), SubResource("BTAction_fallback")]
+children = [SubResource("BTDynamicSequence_vymvh"), SubResource("BTDynamicSequence_wcftb"), SubResource("BTDynamicSequence_5pvf0"), SubResource("BTDynamicSequence_ixq1v"), SubResource("BTSequence_mnk1g"), SubResource("BTSequence_n84fg"), SubResource("BTSequence_mssqu"), SubResource("BTSequence_x8oaa"), SubResource("BTSequence_e2a5l"), SubResource("BTAction_fallback")]
 
 [sub_resource type="BehaviorTree" id="BehaviorTree_ts7x6"]
 blackboard_plan = SubResource("BlackboardPlan_q5o84")
@@ -149,9 +178,7 @@ root_task = SubResource("BTSelector_txqum")
 
 [node name="MeleeGroundEnemy" type="CharacterBody2D" unique_id=2004565075]
 collision_layer = 4
-collision_mask = 1
 script = ExtResource("1")
-max_health = 5.0
 contact_damage = 2
 attack_profile = ExtResource("15_atkprof")
 
@@ -183,11 +210,40 @@ monitoring = false
 script = ExtResource("2")
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="AttackHitbox" unique_id=-1283743951]
-position = Vector2(3.5762787e-07, -12.5472975)
+position = Vector2(13.499999, -10.0472975)
 scale = Vector2(1.0308939, 0.8767885)
 shape = SubResource("RectangleShape2D_attackhitbox")
 disabled = true
 debug_color = Color(1, 0.2, 0.2, 0.5)
+
+[node name="Visual" type="ColorRect" parent="AttackHitbox/CollisionShape2D" unique_id=-1283743950]
+visible = false
+offset_left = -15.0
+offset_top = -14.0
+offset_right = 15.0
+offset_bottom = 14.0
+color = Color(1, 0.2, 0.2, 0.6)
+
+[node name="LungeHitbox" type="Area2D" parent="." unique_id=-1283743949]
+collision_layer = 16
+collision_mask = 0
+monitoring = false
+script = ExtResource("2")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="LungeHitbox" unique_id=-1283743948]
+position = Vector2(21.8, -23.023647)
+scale = Vector2(1.2, 1)
+shape = SubResource("RectangleShape2D_lungehitbox")
+disabled = true
+debug_color = Color(1, 0.3, 0.2, 0.5)
+
+[node name="Visual" type="ColorRect" parent="LungeHitbox/CollisionShape2D" unique_id=-1283743947]
+visible = false
+offset_left = -17.0
+offset_top = -12.5
+offset_right = 17.0
+offset_bottom = 12.5
+color = Color(1, 0.3, 0.2, 0.6)
 
 [node name="ForwardRay" type="RayCast2D" parent="." unique_id=271573624]
 position = Vector2(0, -14)
@@ -209,3 +265,4 @@ behavior_tree = SubResource("BehaviorTree_ts7x6")
 blackboard_plan = SubResource("BlackboardPlan_cvbgm")
 
 [connection signal="screen_exited" from="VisibleOnScreenEnabler2D" to="." method="_clear_aggro"]
+[connection signal="area_entered" from="Hurtbox" to="." method="_on_hurtbox_area_entered"]

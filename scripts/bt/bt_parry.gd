@@ -1,10 +1,7 @@
 @tool
 extends BTAction
-## Starts the shared Enemy parry window. The base Enemy owns the timing so
-## this action works for every enemy subclass without subclass-specific BT
-## leaves. Damage-resolution behavior can consume Enemy.is_parrying() later.
-##
-## Leave this leaf unwired until the enemy-side parry response is implemented.
+## Starts the enemy's defensive parry window. Enemy subclasses can restrict
+## this action through can_start_parry() and consume the resulting hit state.
 
 func _generate_name() -> String:
 	return "Parry"

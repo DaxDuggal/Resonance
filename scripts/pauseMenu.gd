@@ -13,6 +13,10 @@ func pause() -> void:
 	Global.is_paused = true
 	visible = true
 
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_WM_WINDOW_FOCUS_OUT and not get_tree().paused:
+		pause()
+
 func _on_resume_pressed() -> void:
 	resume()
 
