@@ -22,6 +22,7 @@ class_name MeleeGroundEnemy
 @export var lunge_vertical_tolerance := 24.0
 @export var lunge_below_tolerance := 40.0
 @export var retreat_speed := 70.0
+@export var normal_attack_startup_duration := 0.25
 
 @export_group("Attack/Overhead")
 @export var overhead_attack_range := 40.0
@@ -195,6 +196,8 @@ func _on_parry_sequence_break() -> void:
 func _update_attack_visual() -> void:
 	if is_parrying() or is_parry_flashing():
 		visual.modulate = Color(1.0, 0.9, 0.15)
+	elif attack_phase == AttackPhase.STARTUP and selected_attack == MeleeAttack.LUNGE:
+		visual.modulate = Color(0.25, 0.55, 1.0)
 	else:
 		visual.modulate = Color(1.0, 0.3, 0.3) if attack_phase == AttackPhase.STARTUP else Color.WHITE
 
@@ -276,6 +279,7 @@ func start_normal_attack() -> bool:
 		return false
 	selected_attack = MeleeAttack.NORMAL
 	start_attack()
+	attack_phase_timer = normal_attack_startup_duration
 	return is_attacking()
 
 

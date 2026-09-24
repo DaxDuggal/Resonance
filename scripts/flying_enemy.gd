@@ -130,7 +130,10 @@ func _physics_process(delta: float) -> void:
 
 # Charging telegraph: flash red during STARTUP, same as Tusker.
 func _update_attack_visual() -> void:
-	visual.modulate = Color(1.0, 0.3, 0.3) if attack_phase == AttackPhase.STARTUP else Color.WHITE
+	if attack_phase == AttackPhase.STARTUP and selected_attack == FlyingAttack.DIVE:
+		visual.modulate = Color(0.25, 0.55, 1.0)
+	else:
+		visual.modulate = Color(1.0, 0.3, 0.3) if attack_phase == AttackPhase.STARTUP else Color.WHITE
 	swipe_hitbox_visual.visible = selected_attack == FlyingAttack.SWIPE and attack_phase == AttackPhase.ACTIVE
 
 

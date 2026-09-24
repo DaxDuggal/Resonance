@@ -10,6 +10,7 @@ enum Flag {
 	ATTACKING = 1 << 4,
 	PARRYING = 1 << 5,
 	SPECIAL = 1 << 6,
+	ENDLAG = 1 << 7,
 }
 
 var flags: int = 0
@@ -126,6 +127,7 @@ var _attack_recoil_applied := false
 @export_group("Parry")
 @export var parry_window_duration := 0.18
 @export var parry_cooldown := 0.5
+@export var endlag_frames := 5
 @export var parry_heal_amount := 0.25
 # Unused for now — a successful parry currently stuns instead of damaging
 # (see _on_parry_success / parry_stun_frames below). Left in place in case
@@ -138,6 +140,7 @@ var _attack_recoil_applied := false
 
 var parry_state_timer := 0.0
 var parry_cooldown_timer := 0.0
+var endlag_timer := 0.0
 var _parry_heal_accumulator := 0.0
 
 var parry_flash_timer := 0.0
@@ -290,6 +293,16 @@ func _physics_process(delta: float) -> void:
 		input_x = 0.0
 		input_y = 0.0
 
+	if has_flag(Flag.ENDLAG):
+		dash_pressed = false
+		jump_pressed = false
+		jump_released = false
+		attack_pressed = false
+		parry_pressed = false
+		special_pressed = false
+		input_x = 0.0
+		input_y = 0.0
+
 	_handle_invulnerability(delta)
 	var jump_consumed := 0
 	_handle_input_buffers(jump_pressed, dash_pressed, grounded)
@@ -406,6 +419,9 @@ func _handle_invulnerability(delta: float) -> void:
 
 
 func _handle_input_buffers(jump_pressed: bool, dash_pressed: bool, grounded: bool) -> void:
+	if has_flag(Flag.ENDLAG):
+		return
+
 	if dash_pressed:
 		dash_buffer_timer = dash_buffer_time
 
@@ -418,6 +434,9 @@ func _handle_input_buffers(jump_pressed: bool, dash_pressed: bool, grounded: boo
 
 
 func _handle_dash_start(input_x: float, _input_y: float) -> void:
+	if has_flag(Flag.ENDLAG):
+		return
+
 	if dash_buffer_timer <= 0.0 or not dash_available or dash_cooldown_timer > 0.0 or has_flag(Flag.DASHING | Flag.HURT):
 		return
 
@@ -437,6 +456,9 @@ func _handle_dash_start(input_x: float, _input_y: float) -> void:
 
 
 func _handle_attack_start(attack_pressed: bool, input_y: float) -> void:
+	if has_flag(Flag.ENDLAG):
+		return
+
 	if not attack_pressed or attack_cooldown_timer > 0.0 or has_flag(Flag.ATTACKING):
 		return
 
@@ -457,6 +479,9 @@ func _handle_attack_start(attack_pressed: bool, input_y: float) -> void:
 
 
 func _handle_parry_start(parry_pressed: bool) -> void:
+	if has_flag(Flag.ENDLAG):
+		return
+
 	if not parry_pressed or parry_cooldown_timer > 0.0 or has_flag(Flag.PARRYING):
 		return
 
@@ -469,6 +494,9 @@ func _handle_parry_start(parry_pressed: bool) -> void:
 
 
 func _handle_special_start(special_pressed: bool) -> void:
+	if has_flag(Flag.ENDLAG):
+		return
+
 	if not special_pressed or has_flag(Flag.SPECIAL):
 		return
 
@@ -535,6 +563,22 @@ func _end_dash() -> void:
 	set_flag(Flag.DASHING, false)
 	dash_cooldown_timer = dash_cooldown
 	dash_grace_timer = dash_grace_time
+	_start_endlag()
+
+
+func _start_endlag() -> void:
+	if endlag_frames <= 0:
+		set_flag(Flag.ENDLAG, false)
+		endlag_timer = 0.0
+		return
+
+	set_flag(Flag.ENDLAG, true)
+	endlag_timer = Global.frames_to_seconds(endlag_frames)
+	jump_buffered = false
+	wall_jump_buffered = false
+	jump_buffer_timer = 0.0
+	wall_jump_buffer_timer = 0.0
+	dash_buffer_timer = 0.0
 
 
 func _handle_normal_movement(input_x: float, grounded: bool, delta: float, was_dashing: bool) -> void:
@@ -655,7 +699,7 @@ func _handle_gravity(_input_x: float, _input_y: float, grounded: bool, delta: fl
 
 func _handle_wall_jump(input_x: float, _jump_pressed: bool, grounded: bool, jump_consumed: int) -> int:
 	var wall_available := is_next_to_wall or wall_coyote_timer > 0.0
-	if not wall_jump_buffered or jump_consumed or not wall_available or grounded or has_flag(Flag.DASHING):
+	if has_flag(Flag.ENDLAG) or not wall_jump_buffered or jump_consumed or not wall_available or grounded or has_flag(Flag.DASHING):
 		return jump_consumed
 
 	var effective_wall_normal := wall_normal if is_next_to_wall else last_wall_normal
@@ -749,6 +793,9 @@ func _update_timers(delta: float) -> void:
 	wall_jump_control_lock_timer = tick_timer(wall_jump_control_lock_timer, delta)
 	wall_coyote_timer = tick_timer(wall_coyote_timer, delta)
 	wall_jump_redirect_timer = tick_timer(wall_jump_redirect_timer, delta)
+	endlag_timer = tick_timer(endlag_timer, delta)
+	if endlag_timer <= 0.0:
+		set_flag(Flag.ENDLAG, false)
 
 	if control_lock_timer > 0.0:
 		control_lock_timer = tick_timer(control_lock_timer, delta)
@@ -762,11 +809,11 @@ func _update_timers(delta: float) -> void:
 			set_flag(Flag.ATTACKING, false)
 
 	attack_cooldown_timer = tick_timer(attack_cooldown_timer, delta)
-
 	if parry_state_timer > 0.0:
 		parry_state_timer = tick_timer(parry_state_timer, delta)
 		if parry_state_timer <= 0.0:
 			set_flag(Flag.PARRYING, false)
+			_start_endlag()
 
 	parry_cooldown_timer = tick_timer(parry_cooldown_timer, delta)
 	parry_flash_timer = tick_timer(parry_flash_timer, delta)
