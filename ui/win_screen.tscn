@@ -1,17 +1,17 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene format=3 uid="uid://cs7xonfwrhixj"]
 
-[ext_resource type="Script" path="res://scripts/settings_menu.gd" id="1_settings"]
+[ext_resource type="Script" uid="uid://cuglqupff680t" path="res://ui/win_screen.gd" id="1_wv5lq"]
 
-[node name="SettingsMenu" type="Control"]
+[node name="StartMenu" type="Control" unique_id=297724961]
 layout_mode = 3
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
-script = ExtResource("1_settings")
+script = ExtResource("1_wv5lq")
 
-[node name="Background" type="ColorRect" parent="."]
+[node name="Background" type="ColorRect" parent="." unique_id=208799235]
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
@@ -20,7 +20,7 @@ grow_horizontal = 2
 grow_vertical = 2
 color = Color(0.1, 0.1, 0.15, 1)
 
-[node name="VBoxContainer" type="VBoxContainer" parent="."]
+[node name="VBoxContainer" type="VBoxContainer" parent="." unique_id=1379039921]
 layout_mode = 1
 anchors_preset = 8
 anchor_left = 0.5
@@ -34,14 +34,14 @@ offset_bottom = 34.0
 grow_horizontal = 2
 grow_vertical = 2
 
-[node name="StartButton" type="Button" parent="VBoxContainer"]
-layout_mode = 2
+[node name="StartButton" type="Button" parent="VBoxContainer" unique_id=2145480557]
 custom_minimum_size = Vector2(0, 50)
+layout_mode = 2
 text = "Start Game"
 
-[node name="SettingsButton" type="Button" parent="VBoxContainer"]
-layout_mode = 2
+[node name="SettingsButton" type="Button" parent="VBoxContainer" unique_id=402239668]
 custom_minimum_size = Vector2(0, 50)
+layout_mode = 2
 text = "Settings"
 
 [connection signal="pressed" from="VBoxContainer/StartButton" to="." method="_on_start_pressed"]

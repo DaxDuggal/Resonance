@@ -7,7 +7,7 @@ var last_safe_position: Vector2 = Vector2.ZERO
 # Checkpoint state (separate from last_safe_position, which is for hazards).
 var last_checkpoint_position: Vector2 = Vector2.ZERO
 var has_checkpoint: bool = false
-var last_checkpoint_scene: String = "res://scenes/game.tscn"
+var last_checkpoint_scene: String = "res://world/game.tscn"
 
 var saved_current_health: int = -1  # -1 = no load in progress
 var did_just_die: bool = false  # consumed by Player._ready()

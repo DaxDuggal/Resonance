@@ -1,6 +1,6 @@
 [gd_scene format=3 uid="uid://cxfeg2wkrtwft"]
 
-[ext_resource type="Script" uid="uid://b5omfcnhoumhc" path="res://scripts/checkpoint.gd" id="1_chk"]
+[ext_resource type="Script" uid="uid://b5omfcnhoumhc" path="res://world/checkpoint.gd" id="1_chk"]
 [ext_resource type="Texture2D" uid="uid://bu2smgbi0x1w8" path="res://icon.svg" id="1_ywqth"]
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_chk"]

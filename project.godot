@@ -11,7 +11,7 @@ config_version=5
 [application]
 
 config/name="Resonance"
-run/main_scene="res://scenes/start_menu.tscn"
+run/main_scene="res://ui/start_menu.tscn"
 config/features=PackedStringArray("4.7", "Forward Plus")
 config/icon="res://icon.svg"
 
@@ -19,9 +19,9 @@ config/icon="res://icon.svg"
 
 Signal_Debugger="*uid://ywb0tuefuvoy"
 Global="*uid://cjlywcn8st46s"
-Preferences="*res://scripts/preferences.gd"
-SaveManager="*res://scripts/save_manager.gd"
-WorldState="*res://scripts/world_state.gd"
+Preferences="*res://core systems/preferences.gd"
+SaveManager="*res://core systems/save_manager.gd"
+WorldState="*res://core systems/world_state.gd"
 PhantomCameraManager="*uid://duq6jhf6unyis"
 
 [display]
@@ -135,7 +135,7 @@ special={
 
 [limbo_ai]
 
-behavior_tree/user_task_dirs=PackedStringArray("res://scripts/bt")
+behavior_tree/user_task_dirs=PackedStringArray("res://bt")
 behavior_tree/favorite_tasks=PackedStringArray("BTComment", "BTDynamicSelector", "BTDynamicSequence")
 
 [physics]

@@ -1,8 +1,8 @@
 [gd_scene format=3 uid="uid://chchtg3bl6325"]
 
-[ext_resource type="Script" uid="uid://ctly85ysm2pth" path="res://scripts/player.gd" id="1_g2els"]
+[ext_resource type="Script" uid="uid://ctly85ysm2pth" path="res://player/player.gd" id="1_g2els"]
 [ext_resource type="Texture2D" uid="uid://dscsola38dru4" path="res://assets/sprites/knight.png" id="2_g2els"]
-[ext_resource type="Script" uid="uid://dano3qelwypyt" path="res://scripts/damage_hitbox.gd" id="3_dmghb"]
+[ext_resource type="Script" uid="uid://dano3qelwypyt" path="res://core systems/damage_hitbox.gd" id="3_dmghb"]
 
 [sub_resource type="AtlasTexture" id="AtlasTexture_g2els"]
 atlas = ExtResource("2_g2els")

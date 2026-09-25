@@ -6,7 +6,7 @@ extends Node
 
 const SAVE_DIR := "user://saves/"
 const SLOT_COUNT := 3
-const DEFAULT_SCENE_PATH := "res://scenes/game.tscn"
+const DEFAULT_SCENE_PATH := "res://world/game.tscn"
 
 # Which slot is "active" — read/written by everything below. Right now
 # nothing ever changes this away from 0, since there's no slot-select UI

@@ -69,7 +69,7 @@ func _ready() -> void:
 	_sync_swipe_hitbox_visual()
 	# BT now owns the horizontal decision (back away/chase/hold) and attack
 	# triggering (BasicAttack/SpecialAttack) — see the leaves under
-	# scripts/bt/. Default AUTO update_mode would tick it a second time on
+	# bt/. Default AUTO update_mode would tick it a second time on
 	# top of our explicit call below, so force MANUAL and tick it ourselves
 	# at the right point in _physics_process (same reason MeleeGroundEnemy
 	# does this).
