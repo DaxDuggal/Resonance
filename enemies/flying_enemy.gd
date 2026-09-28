@@ -159,7 +159,7 @@ func _mirrored_position(editor_position: Vector2) -> Vector2:
 func stun(duration: float) -> void:
 	super.stun(duration)
 	if swipe_hitbox_shape:
-		swipe_hitbox_shape.disabled = true
+		swipe_hitbox_shape.set_deferred("disabled", true)
 	if swipe_hitbox_visual:
 		swipe_hitbox_visual.visible = false
 
@@ -167,7 +167,7 @@ func stun(duration: float) -> void:
 func _cancel_attack() -> void:
 	super._cancel_attack()
 	if swipe_hitbox_shape:
-		swipe_hitbox_shape.disabled = true
+		swipe_hitbox_shape.set_deferred("disabled", true)
 	if swipe_hitbox_visual:
 		swipe_hitbox_visual.visible = false
 

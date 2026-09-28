@@ -9,17 +9,6 @@ var current_health := 5.0
 @export var contact_damage := 1
 
 @export_group("Body Push")
-# Physical body-to-body collision between the player and enemies is
-# deliberately not used (see collision_mask on Player/MeleeGroundEnemy) —
-# two CharacterBody2Ds ending up exactly stacked (e.g. the player standing
-# on an enemy's head during a mutual hit) sent move_and_slide()'s own
-# depenetration math into an unrecoverable zero-vector case, spamming
-# warnings until the engine's own error-rate limiter stalled the whole game
-# (the Sept 2026 freeze investigation). _apply_player_overlap_push replaces
-# that physical collision with a plain horizontal push done here in script,
-# where a dead-center overlap can just fall back to a direction instead of
-# crashing. Tune these to roughly match this enemy's collision shape rather
-# than reading it at runtime.
 @export var body_push_radius := 13.0
 @export var body_push_half_height := 11.0
 
@@ -65,9 +54,9 @@ func _cancel_attack() -> void:
 	attack_phase = AttackPhase.NONE
 	attack_phase_timer = 0.0
 	if attack_hitbox_shape:
-		attack_hitbox_shape.disabled = true
+		attack_hitbox_shape.set_deferred("disabled", true)
 	if contact_hitbox_shape:
-		contact_hitbox_shape.disabled = false
+		contact_hitbox_shape.set_deferred("disabled", false)
 	if attack_profile:
 		attack_cooldown_timer = attack_profile.cooldown
 

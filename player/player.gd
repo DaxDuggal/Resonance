@@ -10,7 +10,9 @@ enum Flag {
 	ATTACKING = 1 << 4,
 	PARRYING = 1 << 5,
 	SPECIAL = 1 << 6,
-	ENDLAG = 1 << 7,
+	FULLLOCK = 1 << 7,
+	MOVEMENT_LOCK = 1 << 8,
+	JUMP_SQUATTING = 1 << 9,
 }
 
 var flags: int = 0
@@ -27,27 +29,32 @@ func set_flag(flag: int, value: bool) -> void:
 func is_invulnerable() -> bool:
 	return invulnerability_timer > 0.0 or dash_grace_timer > 0.0
 
-# Enemies never physically collide with the player (see project's collision
-# layer setup) — overlap is instead prevented by Enemy._apply_player_overlap_push,
-# a plain horizontal push done in script. This is what that push checks to
-# decide whether to pass through instead. Parrying is the explicit exception:
-# its invulnerability should also let the player avoid the scripted body push.
-# Dashing does not grant invulnerability or intangibility.
 func should_ignore_enemy_overlap() -> bool:
 	return has_flag(Flag.PARRYING)
 
-@onready var sprite: AnimatedSprite2D = $AnimatedSprite2D
+@onready var facing_root: Node2D = $FacingRoot
+@onready var sprite: AnimatedSprite2D = $FacingRoot/AnimatedSprite2D
 @onready var timer: Timer = $Timer
 
-@onready var attack_hitbox: DamageHitbox = $AttackHitbox
-@onready var attack_hitbox_shape: CollisionShape2D = $AttackHitbox/CollisionShape2D
-@onready var attack_hitbox_visual: ColorRect = $AttackHitbox/CollisionShape2D/Visual
-@onready var special_hitbox: DamageHitbox = $SpecialHitbox
-@onready var special_hitbox_shape: CollisionShape2D = $SpecialHitbox/CollisionShape2D
-@onready var special_hitbox_visual: ColorRect = $SpecialHitbox/CollisionShape2D/Visual
+@onready var attack_hitbox: DamageHitbox = $FacingRoot/AttackHitbox
+@onready var attack_hitbox_shape: CollisionShape2D = $FacingRoot/AttackHitbox/CollisionShape2D
+@onready var attack_hitbox_visual: ColorRect = $FacingRoot/AttackHitbox/CollisionShape2D/Visual
+@onready var attack_up_hitbox: DamageHitbox = $FacingRoot/AttackUpHitbox
+@onready var attack_up_hitbox_shape: CollisionShape2D = $FacingRoot/AttackUpHitbox/CollisionShape2D
+@onready var attack_up_hitbox_visual: ColorRect = $FacingRoot/AttackUpHitbox/CollisionShape2D/Visual
+@onready var attack_down_hitbox: DamageHitbox = $FacingRoot/AttackDownHitbox
+@onready var attack_down_hitbox_shape: CollisionShape2D = $FacingRoot/AttackDownHitbox/CollisionShape2D
+@onready var attack_down_hitbox_visual: ColorRect = $FacingRoot/AttackDownHitbox/CollisionShape2D/Visual
+@onready var parry_hurtbox: Area2D = $FacingRoot/ParryHurtbox
+@onready var parry_hurtbox_shape: CollisionShape2D = $FacingRoot/ParryHurtbox/CollisionShape2D
+@onready var parry_hurtbox_visual: ColorRect = $FacingRoot/ParryHurtbox/CollisionShape2D/Visual
+@onready var special_hitbox: DamageHitbox = $FacingRoot/SpecialHitbox
+@onready var special_hitbox_shape: CollisionShape2D = $FacingRoot/SpecialHitbox/CollisionShape2D
+@onready var special_hitbox_visual: ColorRect = $FacingRoot/SpecialHitbox/CollisionShape2D/Visual
 
 func _ready() -> void:
 	Global.player = self
+	_sprite_base_scale = sprite.scale
 
 	if Global.has_checkpoint:
 		global_position = Global.last_checkpoint_position
@@ -62,9 +69,16 @@ func _ready() -> void:
 
 	attack_hitbox.damage = attack_damage
 	attack_hitbox.knockback_force = attack_knockback_force
+	attack_up_hitbox.damage = attack_damage
+	attack_up_hitbox.knockback_force = attack_knockback_force
+	attack_down_hitbox.damage = attack_damage
+	attack_down_hitbox.knockback_force = attack_knockback_force
 	special_hitbox.damage = special_damage
 
 	_sync_hitbox_visual_to_shape(attack_hitbox_shape, attack_hitbox_visual)
+	_sync_hitbox_visual_to_shape(attack_up_hitbox_shape, attack_up_hitbox_visual)
+	_sync_hitbox_visual_to_shape(attack_down_hitbox_shape, attack_down_hitbox_visual)
+	_sync_hitbox_visual_to_shape(parry_hurtbox_shape, parry_hurtbox_visual)
 	_sync_hitbox_visual_to_shape(special_hitbox_shape, special_hitbox_visual)
 
 	if Global.did_just_die:
@@ -107,16 +121,11 @@ const ENEMY_HURTBOX_LAYER := 64  # project.godot layer_7 "EnemyHurtbox"
 @export var attack_damage := 1
 @export var attack_duration := 0.15
 @export var attack_cooldown := 0.20
-@export var attack_hitbox_horizontal_offset := 12.0
-@export var attack_hitbox_vertical_offset := 14.0
 @export var attack_recoil_force := 40.0
 @export var attack_knockback_force := 250.0
 @export var attack_hitstop_duration := 0.09
 
 @export_group("Hurt")
-# Frame-based (see Global.frames_to_seconds) — how long incoming damage is
-# delayed so a same-instant parry still has time to register (see
-# _resolve_enemy_hit below).
 @export var enemy_hit_hitstop_frames := 5
 
 var attack_state_timer := 0.0
@@ -127,20 +136,20 @@ var _attack_recoil_applied := false
 @export_group("Parry")
 @export var parry_window_duration := 0.18
 @export var parry_cooldown := 0.5
-@export var endlag_frames := 5
+@export var fulllock_frames := 5
+@export var movement_lock_frames := 5
 @export var parry_heal_amount := 0.25
-# Unused for now — a successful parry currently stuns instead of damaging
-# (see _on_parry_success / parry_stun_frames below). Left in place in case
-# a "parry also chips damage" mode comes back later.
+
+# Unused for now
 @export var parry_damage := 0.5
 @export var parry_knockback_force := 270.0
-# Frame-based (see Global.frames_to_seconds): how long a parried enemy is
-# completely frozen for, at the project's fixed physics tick rate.
 @export var parry_stun_frames := 45
 
 var parry_state_timer := 0.0
 var parry_cooldown_timer := 0.0
-var endlag_timer := 0.0
+var fulllock_timer := 0.0
+var movement_lock_timer := 0.0
+var _parried_hitbox_expirations: Dictionary = {}
 var _parry_heal_accumulator := 0.0
 
 var parry_flash_timer := 0.0
@@ -156,14 +165,16 @@ var current_meter := 0
 
 var special_state_timer := 0.0
 
+var _sprite_base_scale := Vector2.ONE
+
 @export_group("Movement")
-@export var max_speed := 240.0
-@export var max_air_speed := 240.0
+@export var max_speed := 250.0
+@export var max_air_speed := 250.0
 @export var acceleration := 1200.0
 @export var air_acceleration := 1150.0
 @export var friction := 1800.0
 @export var air_friction := 900.0
-@export var run_jump_speed_boost := 70.0
+@export var run_jump_speed_boost := 50.0
 @export var run_jump_boost_ease_duration := 0.3
 
 var run_jump_boost_timer := 0.0
@@ -172,15 +183,20 @@ var run_jump_boost_direction := 0
 
 
 @export_group("Jump / Gravity")
-@export var jump_velocity := -300.0
+@export_range(0, 12, 1) var jump_squat_frames := 4
+@export_range(0.5, 1.0, 0.01) var jump_speed_multiplier := 0.97
+@export var jump_velocity := -280.0
 @export var gravity := 980.0
-@export var max_fall_speed := 600.0
+@export var max_fall_speed := 630.0
 @export var jump_cut_multiplier := 0.6
 @export var apex_threshold := 120.0
-@export var apex_gravity_mult := 0.75
-@export var fall_gravity_mult := 1.2
+@export var apex_gravity_mult := 0.7
+@export var fall_gravity_mult := 1.25
 
 var jump_cut_disabled_timer := 0.0
+var _jump_squat_frames_remaining := 0
+var _jump_squat_jump_released := false
+var _jump_arc_active := false
 
 const WALL_JUMP_CUT_DISABLE_TIME := 0.2
 
@@ -293,7 +309,7 @@ func _physics_process(delta: float) -> void:
 		input_x = 0.0
 		input_y = 0.0
 
-	if has_flag(Flag.ENDLAG):
+	if has_flag(Flag.FULLLOCK):
 		dash_pressed = false
 		jump_pressed = false
 		jump_released = false
@@ -302,7 +318,6 @@ func _physics_process(delta: float) -> void:
 		special_pressed = false
 		input_x = 0.0
 		input_y = 0.0
-
 	_handle_invulnerability(delta)
 	var jump_consumed := 0
 	_handle_input_buffers(jump_pressed, dash_pressed, grounded)
@@ -329,7 +344,7 @@ func _physics_process(delta: float) -> void:
 	_handle_coyote_and_dash_refresh(input_x, input_y, grounded, delta)
 	_update_timers(delta)
 
-	sprite.flip_h = facing_direction == -1
+	facing_root.scale.x = absf(facing_root.scale.x) * facing_direction
 	_update_animation()
 	_update_attack_hitboxes()
 	apply_corner_correction(delta, input_x)
@@ -347,24 +362,27 @@ func _sync_hitbox_visual_to_shape(shape: CollisionShape2D, visual: ColorRect) ->
 
 func _update_attack_hitboxes() -> void:
 	var attacking := has_flag(Flag.ATTACKING)
-	attack_hitbox_shape.disabled = not attacking
-	attack_hitbox_visual.visible = attacking
-	if attack_direction == Vector2.UP:
-		attack_hitbox.position = Vector2(0.0, -attack_hitbox_vertical_offset)
-		attack_hitbox.rotation = deg_to_rad(90.0)
-	elif attack_direction == Vector2.DOWN:
-		attack_hitbox.position = Vector2(0.0, attack_hitbox_vertical_offset)
-		attack_hitbox.rotation = deg_to_rad(90.0)
-	else:
-		attack_hitbox.position = Vector2(attack_hitbox_horizontal_offset * facing_direction, 0.0)
-		attack_hitbox.rotation = 0.0
+	var horizontal_attacking := attacking and attack_direction != Vector2.UP and attack_direction != Vector2.DOWN
+	var attacking_up := attacking and attack_direction == Vector2.UP
+	var attacking_down := attacking and attack_direction == Vector2.DOWN
+	attack_hitbox_shape.disabled = not horizontal_attacking
+	attack_hitbox_visual.visible = horizontal_attacking
+	attack_up_hitbox_shape.disabled = not attacking_up
+	attack_up_hitbox_visual.visible = attacking_up
+	attack_down_hitbox_shape.disabled = not attacking_down
+	attack_down_hitbox_visual.visible = attacking_down
 	attack_hitbox.knockback_direction_override = attack_direction
+	attack_up_hitbox.knockback_direction_override = attack_direction
+	attack_down_hitbox.knockback_direction_override = attack_direction
 
 	var specialing := has_flag(Flag.SPECIAL)
 	special_hitbox_shape.disabled = not specialing
 	special_hitbox_visual.visible = specialing
-	special_hitbox.position.x = absf(special_hitbox.position.x) * facing_direction
 	special_hitbox.knockback_direction_override = Vector2(facing_direction, 0.0)
+
+	var parrying := has_flag(Flag.PARRYING)
+	parry_hurtbox_shape.disabled = not parrying
+	parry_hurtbox_visual.visible = parrying
 
 
 func _on_attack_hitbox_area_entered(area: Area2D) -> void:
@@ -395,6 +413,11 @@ func _update_animation() -> void:
 			sprite.play("hit")
 		return
 
+	if has_flag(Flag.JUMP_SQUATTING):
+		if sprite.animation != "idle":
+			sprite.play("idle")
+		return
+
 	if sprite.animation == "dash" and sprite.is_playing():
 		return
 
@@ -419,11 +442,12 @@ func _handle_invulnerability(delta: float) -> void:
 
 
 func _handle_input_buffers(jump_pressed: bool, dash_pressed: bool, grounded: bool) -> void:
-	if has_flag(Flag.ENDLAG):
+	if has_flag(Flag.FULLLOCK):
 		return
 
 	if dash_pressed:
-		dash_buffer_timer = dash_buffer_time
+		if not has_flag(Flag.MOVEMENT_LOCK):
+			dash_buffer_timer = dash_buffer_time
 
 	if jump_pressed:
 		jump_buffered = true
@@ -434,7 +458,7 @@ func _handle_input_buffers(jump_pressed: bool, dash_pressed: bool, grounded: boo
 
 
 func _handle_dash_start(input_x: float, _input_y: float) -> void:
-	if has_flag(Flag.ENDLAG):
+	if has_flag(Flag.FULLLOCK | Flag.MOVEMENT_LOCK):
 		return
 
 	if dash_buffer_timer <= 0.0 or not dash_available or dash_cooldown_timer > 0.0 or has_flag(Flag.DASHING | Flag.HURT):
@@ -442,6 +466,8 @@ func _handle_dash_start(input_x: float, _input_y: float) -> void:
 
 	var dash_dir := Vector2(sign(input_x), 0.0) if input_x != 0.0 else Vector2(facing_direction, 0.0)
 
+	_cancel_jump_squat()
+	_jump_arc_active = false
 	facing_direction = int(dash_dir.x)
 
 	dash_direction = dash_dir
@@ -456,7 +482,7 @@ func _handle_dash_start(input_x: float, _input_y: float) -> void:
 
 
 func _handle_attack_start(attack_pressed: bool, input_y: float) -> void:
-	if has_flag(Flag.ENDLAG):
+	if has_flag(Flag.FULLLOCK):
 		return
 
 	if not attack_pressed or attack_cooldown_timer > 0.0 or has_flag(Flag.ATTACKING):
@@ -465,6 +491,7 @@ func _handle_attack_start(attack_pressed: bool, input_y: float) -> void:
 	if has_flag(Flag.HURT | Flag.DEAD):
 		return
 
+	_cancel_jump_squat()
 	if input_y < -0.5:
 		attack_direction = Vector2.UP
 	elif input_y > 0.5 and not is_on_floor():
@@ -479,7 +506,7 @@ func _handle_attack_start(attack_pressed: bool, input_y: float) -> void:
 
 
 func _handle_parry_start(parry_pressed: bool) -> void:
-	if has_flag(Flag.ENDLAG):
+	if has_flag(Flag.FULLLOCK):
 		return
 
 	if not parry_pressed or parry_cooldown_timer > 0.0 or has_flag(Flag.PARRYING):
@@ -488,13 +515,14 @@ func _handle_parry_start(parry_pressed: bool) -> void:
 	if has_flag(Flag.HURT | Flag.DEAD | Flag.DASHING | Flag.ATTACKING):
 		return
 
+	_cancel_jump_squat()
 	set_flag(Flag.PARRYING, true)
 	parry_state_timer = parry_window_duration
 	parry_cooldown_timer = parry_cooldown
 
 
 func _handle_special_start(special_pressed: bool) -> void:
-	if has_flag(Flag.ENDLAG):
+	if has_flag(Flag.FULLLOCK):
 		return
 
 	if not special_pressed or has_flag(Flag.SPECIAL):
@@ -506,6 +534,7 @@ func _handle_special_start(special_pressed: bool) -> void:
 	if has_flag(Flag.HURT | Flag.DEAD | Flag.DASHING | Flag.ATTACKING | Flag.PARRYING):
 		return
 
+	_cancel_jump_squat()
 	current_meter = 0
 	set_flag(Flag.SPECIAL, true)
 	special_state_timer = special_duration
@@ -563,17 +592,17 @@ func _end_dash() -> void:
 	set_flag(Flag.DASHING, false)
 	dash_cooldown_timer = dash_cooldown
 	dash_grace_timer = dash_grace_time
-	_start_endlag()
+	_start_movement_lock()
 
 
-func _start_endlag() -> void:
-	if endlag_frames <= 0:
-		set_flag(Flag.ENDLAG, false)
-		endlag_timer = 0.0
+func _start_fulllock() -> void:
+	if fulllock_frames <= 0:
+		set_flag(Flag.FULLLOCK, false)
+		fulllock_timer = 0.0
 		return
 
-	set_flag(Flag.ENDLAG, true)
-	endlag_timer = Global.frames_to_seconds(endlag_frames)
+	set_flag(Flag.FULLLOCK, true)
+	fulllock_timer = Global.frames_to_seconds(fulllock_frames)
 	jump_buffered = false
 	wall_jump_buffered = false
 	jump_buffer_timer = 0.0
@@ -581,9 +610,23 @@ func _start_endlag() -> void:
 	dash_buffer_timer = 0.0
 
 
+func _start_movement_lock() -> void:
+	if movement_lock_frames <= 0:
+		set_flag(Flag.MOVEMENT_LOCK, false)
+		movement_lock_timer = 0.0
+		return
+
+	set_flag(Flag.MOVEMENT_LOCK, true)
+	movement_lock_timer = Global.frames_to_seconds(movement_lock_frames)
+	dash_buffer_timer = 0.0
+
+
 func _handle_normal_movement(input_x: float, grounded: bool, delta: float, was_dashing: bool) -> void:
 	if has_flag(Flag.DASHING) or was_dashing:
 		return
+
+	if has_flag(Flag.MOVEMENT_LOCK):
+		input_x = 0.0
 
 	if has_flag(Flag.PARRYING) and grounded:
 		velocity.x = 0.0
@@ -613,6 +656,20 @@ func _handle_normal_movement(input_x: float, grounded: bool, delta: float, was_d
 
 
 func _handle_jump_execution(_jump_pressed: bool, jump_released: bool, grounded: bool, jump_consumed: int) -> int:
+	if has_flag(Flag.JUMP_SQUATTING):
+		if jump_released:
+			_jump_squat_jump_released = true
+		_jump_squat_frames_remaining -= 1
+		if _jump_squat_frames_remaining <= 0:
+			var jump_was_released := _jump_squat_jump_released
+			_cancel_jump_squat()
+			_set_jump_velocity()
+			_start_run_jump_boost()
+			if jump_was_released:
+				velocity.y *= jump_cut_multiplier
+			return 1
+		return jump_consumed
+
 	if jump_released and velocity.y < -100.0 and not has_flag(Flag.DASHING) and jump_cut_disabled_timer <= 0.0:
 		velocity.y *= jump_cut_multiplier
 
@@ -620,23 +677,55 @@ func _handle_jump_execution(_jump_pressed: bool, jump_released: bool, grounded: 
 		return jump_consumed
 
 	if (grounded or coyote_timer > 0.0 or has_flag(Flag.DASHING)) and not has_flag(Flag.HURT):
-		velocity.y = jump_velocity
+		if grounded and not has_flag(Flag.DASHING) and jump_squat_frames > 0:
+			_start_jump_squat()
+			jump_buffered = false
+			jump_buffer_timer = 0.0
+			return jump_consumed
+
+		_set_jump_velocity()
 		jump_buffered = false
 		if not grounded and coyote_timer > 0.0:
 			coyote_timer = 0.0
 
 		if not has_flag(Flag.DASHING):
-			var takeoff_speed_ratio: float = clampf(abs(velocity.x) / max_speed, 0.0, 1.0)
-			var boost_amount := run_jump_speed_boost * takeoff_speed_ratio
-			if boost_amount > 0.0:
-				run_jump_boost_direction = int(sign(velocity.x)) if velocity.x != 0.0 else facing_direction
-				run_jump_boost_start_speed = abs(velocity.x) + boost_amount
-				run_jump_boost_timer = run_jump_boost_ease_duration
+			_start_run_jump_boost()
 
 		set_flag(Flag.WALL_CLINGING, false)
 		return 1
 
 	return jump_consumed
+
+
+func _start_jump_squat() -> void:
+	set_flag(Flag.JUMP_SQUATTING, true)
+	_jump_squat_frames_remaining = jump_squat_frames
+	_jump_squat_jump_released = false
+	sprite.scale = _sprite_base_scale * Vector2(1.0, 0.9)
+
+
+func _cancel_jump_squat() -> void:
+	if not has_flag(Flag.JUMP_SQUATTING):
+		return
+
+	set_flag(Flag.JUMP_SQUATTING, false)
+	_jump_squat_frames_remaining = 0
+	_jump_squat_jump_released = false
+	sprite.scale = _sprite_base_scale
+
+
+func _set_jump_velocity(strength: float = 1.0) -> void:
+	velocity.y = jump_velocity * jump_speed_multiplier * strength
+	_jump_arc_active = true
+
+
+func _start_run_jump_boost() -> void:
+	var takeoff_speed_ratio: float = clampf(abs(velocity.x) / max_speed, 0.0, 1.0)
+	var boost_amount := run_jump_speed_boost * takeoff_speed_ratio
+	if boost_amount > 0.0:
+		run_jump_boost_direction = int(sign(velocity.x)) if velocity.x != 0.0 else facing_direction
+		run_jump_boost_start_speed = abs(velocity.x) + boost_amount
+		run_jump_boost_timer = run_jump_boost_ease_duration
 
 
 func _handle_run_jump_boost(input_x: float, delta: float) -> void:
@@ -664,7 +753,7 @@ func _handle_wall_cling_state(input_x: float, grounded: bool) -> void:
 		(wall_normal.x > 0.0 and input_x < 0.0)
 	)
 
-	var locomotion_free := not has_flag(Flag.DASHING | Flag.WALL_CLINGING | Flag.HURT | Flag.DEAD | Flag.ATTACKING | Flag.PARRYING | Flag.SPECIAL) and wall_jump_control_lock_timer <= 0.0
+	var locomotion_free := not has_flag(Flag.DASHING | Flag.WALL_CLINGING | Flag.HURT | Flag.DEAD | Flag.ATTACKING | Flag.PARRYING | Flag.SPECIAL | Flag.MOVEMENT_LOCK) and wall_jump_control_lock_timer <= 0.0
 
 	if not grounded and is_next_to_wall and velocity.y > 0.0 and pushing_into_wall and locomotion_free:
 		set_flag(Flag.WALL_CLINGING, true)
@@ -680,11 +769,22 @@ func _handle_gravity(_input_x: float, _input_y: float, grounded: bool, delta: fl
 		return
 
 	if grounded:
+		if velocity.y >= 0.0:
+			_jump_arc_active = false
 		return
 
 	var gravity_mult := 1.0
+	var effective_apex_threshold := apex_threshold
+	var jump_gravity_scale := 1.0
 
-	if abs(velocity.y) < apex_threshold:
+	if _jump_arc_active:
+		if velocity.y >= 0.0:
+			_jump_arc_active = false
+		else:
+			jump_gravity_scale = jump_speed_multiplier * jump_speed_multiplier
+			effective_apex_threshold *= jump_speed_multiplier
+
+	if abs(velocity.y) < effective_apex_threshold:
 		gravity_mult = apex_gravity_mult
 	elif velocity.y > 0.0:
 		gravity_mult = fall_gravity_mult
@@ -693,13 +793,13 @@ func _handle_gravity(_input_x: float, _input_y: float, grounded: bool, delta: fl
 		gravity_mult *= wall_cling_gravity_mult
 		velocity.y = min(velocity.y, wall_cling_max_fall_speed)
 
-	velocity.y += gravity * gravity_mult * delta
+	velocity.y += gravity * gravity_mult * jump_gravity_scale * delta
 	velocity.y = min(velocity.y, max_fall_speed)
 
 
 func _handle_wall_jump(input_x: float, _jump_pressed: bool, grounded: bool, jump_consumed: int) -> int:
 	var wall_available := is_next_to_wall or wall_coyote_timer > 0.0
-	if has_flag(Flag.ENDLAG) or not wall_jump_buffered or jump_consumed or not wall_available or grounded or has_flag(Flag.DASHING):
+	if has_flag(Flag.FULLLOCK) or not wall_jump_buffered or jump_consumed or not wall_available or grounded or has_flag(Flag.DASHING):
 		return jump_consumed
 
 	var effective_wall_normal := wall_normal if is_next_to_wall else last_wall_normal
@@ -715,10 +815,10 @@ func _handle_wall_jump(input_x: float, _jump_pressed: bool, grounded: bool, jump
 
 	if is_climb:
 		velocity.x = push_direction * wall_climb_jump_push_force
-		velocity.y = jump_velocity
+		_set_jump_velocity()
 	else:
 		velocity.x = push_direction * wall_jump_push_force
-		velocity.y = jump_velocity * 0.8
+		_set_jump_velocity(0.8)
 
 	wall_jump_redirect_timer = wall_jump_redirect_window
 	wall_jump_redirect_push_direction = push_direction
@@ -738,7 +838,7 @@ func _handle_wall_jump(input_x: float, _jump_pressed: bool, grounded: bool, jump
 
 
 func _handle_wall_jump_redirect(input_x: float) -> void:
-	if wall_jump_redirect_timer <= 0.0:
+	if wall_jump_redirect_timer <= 0.0 or has_flag(Flag.MOVEMENT_LOCK):
 		return
 
 	var held_dir := int(sign(input_x))
@@ -747,11 +847,11 @@ func _handle_wall_jump_redirect(input_x: float) -> void:
 
 	if wall_jump_redirect_was_climb and held_dir == wall_jump_redirect_push_direction:
 		velocity.x = wall_jump_redirect_push_direction * wall_jump_push_force
-		velocity.y = jump_velocity * 0.8
+		_set_jump_velocity(0.8)
 		wall_jump_redirect_timer = 0.0
 	elif not wall_jump_redirect_was_climb and held_dir == -wall_jump_redirect_push_direction:
 		velocity.x = wall_jump_redirect_push_direction * wall_climb_jump_push_force
-		velocity.y = jump_velocity
+		_set_jump_velocity()
 		wall_jump_redirect_timer = 0.0
 
 
@@ -793,9 +893,12 @@ func _update_timers(delta: float) -> void:
 	wall_jump_control_lock_timer = tick_timer(wall_jump_control_lock_timer, delta)
 	wall_coyote_timer = tick_timer(wall_coyote_timer, delta)
 	wall_jump_redirect_timer = tick_timer(wall_jump_redirect_timer, delta)
-	endlag_timer = tick_timer(endlag_timer, delta)
-	if endlag_timer <= 0.0:
-		set_flag(Flag.ENDLAG, false)
+	fulllock_timer = tick_timer(fulllock_timer, delta)
+	if fulllock_timer <= 0.0:
+		set_flag(Flag.FULLLOCK, false)
+	movement_lock_timer = tick_timer(movement_lock_timer, delta)
+	if movement_lock_timer <= 0.0:
+		set_flag(Flag.MOVEMENT_LOCK, false)
 
 	if control_lock_timer > 0.0:
 		control_lock_timer = tick_timer(control_lock_timer, delta)
@@ -813,7 +916,7 @@ func _update_timers(delta: float) -> void:
 		parry_state_timer = tick_timer(parry_state_timer, delta)
 		if parry_state_timer <= 0.0:
 			set_flag(Flag.PARRYING, false)
-			_start_endlag()
+			_start_fulllock()
 
 	parry_cooldown_timer = tick_timer(parry_cooldown_timer, delta)
 	parry_flash_timer = tick_timer(parry_flash_timer, delta)
@@ -959,6 +1062,8 @@ func apply_corner_correction(delta: float, input_x: float) -> void:
 
 
 func take_damage(amount: int = 1, knockback: Vector2 = Vector2.ZERO, lock_actions: bool = true) -> void:
+	_cancel_jump_squat()
+	_jump_arc_active = false
 	current_health = maxi(current_health - amount, 0)
 	invulnerability_timer = invulnerability_duration
 	if lock_actions:
@@ -973,19 +1078,48 @@ func take_damage(amount: int = 1, knockback: Vector2 = Vector2.ZERO, lock_action
 		dead()
 
 func take_enemy_damage(amount: int = 1, knockback: Vector2 = Vector2.ZERO, source_hitbox: Area2D = null) -> void:
-	if is_invulnerable():
+	if _consume_parried_hitbox(source_hitbox):
 		return
 
-	var hitbox := source_hitbox as DamageHitbox
-	var parryable := hitbox == null or hitbox.is_parryable
-
-	if has_flag(Flag.PARRYING) and parryable:
-		_on_parry_success(source_hitbox)
+	if is_invulnerable():
 		return
 
 	take_damage(amount, knockback, false)
 
+func _on_parry_hurtbox_area_entered(area: Area2D) -> void:
+	var hitbox := area as DamageHitbox
+	if hitbox == null or not hitbox.is_parryable or not has_flag(Flag.PARRYING) or is_invulnerable():
+		return
+
+	_prune_parried_hitboxes()
+	var hitbox_id := hitbox.get_instance_id()
+	if _parried_hitbox_expirations.has(hitbox_id):
+		return
+
+	_on_parry_success(hitbox)
+
+func _consume_parried_hitbox(source_hitbox: Area2D) -> bool:
+	if source_hitbox == null:
+		return false
+
+	_prune_parried_hitboxes()
+	var hitbox_id := source_hitbox.get_instance_id()
+	if not _parried_hitbox_expirations.has(hitbox_id):
+		return false
+
+	_parried_hitbox_expirations.erase(hitbox_id)
+	return true
+
+func _prune_parried_hitboxes() -> void:
+	var now := Time.get_ticks_msec()
+	for hitbox_id in _parried_hitbox_expirations.keys():
+		if now >= int(_parried_hitbox_expirations[hitbox_id]):
+			_parried_hitbox_expirations.erase(hitbox_id)
+
 func _on_parry_success(source_hitbox: Area2D = null) -> void:
+	if source_hitbox:
+		_parried_hitbox_expirations[source_hitbox.get_instance_id()] = Time.get_ticks_msec() + 500
+
 	_parry_heal_accumulator += parry_heal_amount
 	while _parry_heal_accumulator >= 1.0 and current_health < max_health:
 		_parry_heal_accumulator -= 1.0
@@ -1010,10 +1144,9 @@ func _on_hitbox_area_entered(area: Area2D) -> void:
 		hazard_hit()
 
 
-# Delayed by a brief hitstop (see Global.hitstop) before damage actually
-# applies — that freeze doesn't stop this function's own frame from still
-# running each real frame, so a parry pressed during it still sets
-# Flag.PARRYING in time for take_enemy_damage()'s check below.
+# Delay damage briefly so a parry started during impact hitstop can register.
+# A successful overlap in ParryHurtbox marks this specific attack as parried,
+# and take_enemy_damage() consumes that mark before applying deferred damage.
 func _resolve_enemy_hit(hitbox: DamageHitbox) -> void:
 	if is_invulnerable():
 		return
@@ -1070,6 +1203,7 @@ func dead() -> void:
 	if has_flag(Flag.DEAD):
 		return
 
+	_cancel_jump_squat()
 	set_flag(Flag.DEAD, true)
 	set_flag(Flag.HURT, false)
 	current_health = max_health

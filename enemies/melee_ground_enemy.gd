@@ -148,7 +148,7 @@ func _mirrored_hitbox_position(editor_position: Vector2) -> Vector2:
 func _cancel_attack() -> void:
 	super._cancel_attack()
 	if lunge_hitbox_shape:
-		lunge_hitbox_shape.disabled = true
+		lunge_hitbox_shape.set_deferred("disabled", true)
 	if attack_hitbox_visual:
 		attack_hitbox_visual.visible = false
 	if lunge_hitbox_visual:

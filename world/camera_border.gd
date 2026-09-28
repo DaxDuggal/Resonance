@@ -12,6 +12,11 @@ class_name CameraBorder
 		queue_redraw()
 
 @export var activation_priority: int = 10
+@export var default_zoom: Vector2 = Vector2(2.25, 2.25):
+	set(value):
+		default_zoom = value
+		if is_instance_valid(phantom_camera):
+			phantom_camera.zoom = value
 
 @onready var collision_shape: CollisionShape2D = $CollisionShape2D
 @onready var phantom_camera: PhantomCamera2D = $PhantomCamera2D
@@ -36,6 +41,7 @@ func _draw() -> void:
 
 func _ready() -> void:
 	_apply_border_size()
+	phantom_camera.zoom = default_zoom
 	if Engine.is_editor_hint():
 		return
 
