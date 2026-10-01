@@ -1,0 +1,9 @@
+[gd_resource type="Resource" script_class="EnemyBlock" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://resources/enemy_block.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+max_posture = 100.0
+posture_regen_rate = 20.0
+posture_after_guard_break = 35.0

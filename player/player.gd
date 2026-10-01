@@ -116,12 +116,14 @@ var hit_flash_timer := 0.0
 @export var body_push_half_height := 9.0
 
 const ENEMY_HURTBOX_LAYER := 64  # project.godot layer_7 "EnemyHurtbox"
+const ENEMY_ATTACK_HITBOX_LAYER := 16  # project.godot layer_5 "Hitbox"
 
 @export_group("Attack")
 @export var attack_damage := 1
 @export var attack_duration := 0.15
 @export var attack_cooldown := 0.20
 @export var attack_recoil_force := 40.0
+@export var attack_pogo_force := 300.0
 @export var attack_knockback_force := 250.0
 @export var attack_hitstop_duration := 0.09
 
@@ -213,10 +215,10 @@ var dash_buffer_timer := 0.0
 
 
 @export_group("Dash")
-@export var dash_speed := 700.0
-@export var dash_duration := 0.07
-@export var dash_cooldown := 0.3
-@export var dash_land_cooldown := 0.05
+@export var dash_speed := 670.0
+@export var dash_duration := 0.05
+@export var dash_cooldown := 0.4
+@export var dash_land_cooldown := 0
 @export var dash_grace_time := 0.05
 @export var dash_gravity_mult := 0.75
 @export var dash_tail_speed_mult := 0.6
@@ -386,25 +388,37 @@ func _update_attack_hitboxes() -> void:
 
 
 func _on_attack_hitbox_area_entered(area: Area2D) -> void:
+	var recoil_multiplier := 1.0
 	if area.collision_layer & ENEMY_HURTBOX_LAYER:
 		current_meter = mini(current_meter + 1, max_meter)
 		Global.hitstop(attack_hitstop_duration)
-	_apply_attack_hit_recoil()
+		var enemy := area.get_parent() as Enemy
+		if enemy:
+			recoil_multiplier = enemy.block_player_recoil_multiplier()
+
+	if attack_direction == Vector2.DOWN and (area.collision_layer & ENEMY_ATTACK_HITBOX_LAYER) == 0:
+		return
+
+	_apply_attack_hit_recoil(recoil_multiplier)
 
 
 func _on_attack_hitbox_body_entered(_body: Node) -> void:
+	if attack_direction == Vector2.DOWN:
+		return
+
 	_apply_attack_hit_recoil()
 
 
-func _apply_attack_hit_recoil() -> void:
+func _apply_attack_hit_recoil(recoil_multiplier: float = 1.0) -> void:
 	if _attack_recoil_applied:
 		return
 	_attack_recoil_applied = true
 
 	if attack_direction == Vector2.DOWN:
-		velocity.y = jump_velocity
+		velocity.y = minf(velocity.y, 0.0) - attack_pogo_force * recoil_multiplier
+		_jump_arc_active = true
 	else:
-		velocity += -attack_direction * attack_recoil_force
+		velocity += -attack_direction * attack_recoil_force * recoil_multiplier
 
 
 func _update_animation() -> void:
@@ -1132,6 +1146,8 @@ func _on_parry_success(source_hitbox: Area2D = null) -> void:
 	if source_hitbox:
 		var enemy := source_hitbox.get_parent() as Enemy
 		if enemy:
+			if enemy.block_profile:
+				enemy.apply_posture_damage(enemy.block_profile.posture_damage_on_parry)
 			enemy.stun(Global.frames_to_seconds(parry_stun_frames))
 
 func _on_hitbox_body_entered(_body: Node2D) -> void:

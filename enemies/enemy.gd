@@ -18,24 +18,22 @@ var current_health := 5.0
 @export var can_be_interrupted_while_attacking := false
 var knockback_stun_timer := 0.0
 
-@export_group("Parry")
-@export var parry_duration := 0.18
-@export var parry_damage_multiplier := 0.5
-@export var parry_knockback_multiplier := 0.25
-@export var parry_stun_duration := 0.05
-@export var parry_flash_duration := 0.15
-var parry_timer := 0.0
-var parry_flash_timer := 0.0
+@export_group("Block")
+@export var block_profile: EnemyBlock
+var block_attack_lockout_timer := 0.0
+var _block_attack_lockout_started := false
+var posture := 0.0
+var posture_regen_timer := 0.0
+var guard_break_timer := 0.0
+
+enum CombatState { NEUTRAL, BLOCKING, ATTACK_STARTUP, ATTACK_ACTIVE, ATTACK_RECOVERY, GUARD_BROKEN, STUNNED, KNOCKBACK }
 
 @export_group("Hurt")
 @export var player_hit_hitstop_frames := 5
 
 # A full stop, distinct from knockback stun — no damage, no shove, just
 # unable to attack or move under its own power for stun_timer seconds.
-# Gravity/physics still apply (it can still fall, land, slide to a stop) —
-# it's "stuck," not literally frozen in place. Used by a successful player
-# parry, which also cancels whatever attack was in progress so there's no
-# lingering hitbox during the stun.
+# Gravity/physics still apply (it can still fall, land, slide to a stop).
 var stun_timer := 0.0
 
 func stun(duration: float) -> void:
@@ -66,54 +64,83 @@ func _can_interrupt_current_attack() -> bool:
 
 
 func _process(delta: float) -> void:
-	parry_timer = maxf(parry_timer - delta, 0.0)
-	parry_flash_timer = maxf(parry_flash_timer - delta, 0.0)
-	if not is_parrying() and (not Global.player or not Global.player.has_flag(Player.Flag.ATTACKING)):
-		_on_parry_sequence_break()
+	block_attack_lockout_timer = maxf(block_attack_lockout_timer - delta, 0.0)
+	if block_profile and posture > 0.0:
+		posture_regen_timer = maxf(posture_regen_timer - delta, 0.0)
+		if posture_regen_timer <= 0.0 and not is_attacking() and guard_break_timer <= 0.0:
+			posture = maxf(posture - block_profile.posture_regen_rate * delta, 0.0)
 
 
-func is_parrying() -> bool:
-	return parry_timer > 0.0
+func is_blocking() -> bool:
+	return block_profile != null \
+		and not is_dead \
+		and not is_attacking() \
+		and stun_timer <= 0.0 \
+		and guard_break_timer <= 0.0
 
 
-func start_parry() -> bool:
-	if not can_start_parry():
+func get_combat_state() -> CombatState:
+	if is_dead:
+		return CombatState.NEUTRAL
+	if guard_break_timer > 0.0:
+		return CombatState.GUARD_BROKEN
+	if stun_timer > 0.0:
+		return CombatState.STUNNED
+	if is_attacking():
+		match attack_phase:
+			AttackPhase.STARTUP:
+				return CombatState.ATTACK_STARTUP
+			AttackPhase.ACTIVE:
+				return CombatState.ATTACK_ACTIVE
+			AttackPhase.RECOVERY:
+				return CombatState.ATTACK_RECOVERY
+	if is_blocking():
+		return CombatState.BLOCKING
+	if knockback_stun_timer > 0.0:
+		return CombatState.KNOCKBACK
+	return CombatState.NEUTRAL
+
+
+func _tick_guard_break(delta: float) -> bool:
+	if guard_break_timer <= 0.0:
 		return false
-	parry_timer = parry_duration
-	parry_flash_timer = parry_duration
+	guard_break_timer = maxf(guard_break_timer - delta, 0.0)
+	if guard_break_timer <= 0.0:
+		posture = minf(posture, block_profile.posture_after_guard_break)
+		posture_regen_timer = block_profile.posture_regen_delay
+		return false
 	return true
 
 
-func can_start_parry() -> bool:
-	return not is_dead and not is_attacking() and not is_parrying()
+func _break_guard() -> void:
+	guard_break_timer = block_profile.guard_break_duration
+	block_attack_lockout_timer = maxf(block_attack_lockout_timer, guard_break_timer)
+	if is_attacking():
+		_cancel_attack()
 
 
-func _consume_parry_hit() -> bool:
-	if not is_parrying():
-		return false
-	return true
+func apply_posture_damage(amount: float) -> void:
+	if is_dead or block_profile == null or guard_break_timer > 0.0:
+		return
+	posture = minf(posture + maxf(amount, 0.0), block_profile.max_posture)
+	posture_regen_timer = block_profile.posture_regen_delay
+	if posture >= block_profile.max_posture:
+		_break_guard()
 
 
-func is_parry_flashing() -> bool:
-	return parry_flash_timer > 0.0
+func _begin_attack() -> void:
+	_block_attack_lockout_started = false
 
 
-func _on_parry_sequence_break() -> void:
-	pass
-
-
-func _can_auto_parry_player_hit() -> bool:
-	return false
-
-
-func _on_auto_parry_player_hit() -> void:
-	pass
+func block_player_recoil_multiplier() -> float:
+	if not is_blocking():
+		return 1.0
+	return block_profile.player_recoil_multiplier
 
 
 # Call every physics frame (subclasses call this after their own
-# move_and_slide()) so the player and this enemy never overlap, short of the
-# player being invulnerable or parrying (see Player.should_ignore_enemy_overlap,
-# where passing through is the point).
+# move_and_slide()) so the player and this enemy never overlap, except when
+# the player is in a state that intentionally ignores enemy overlap.
 func _apply_player_overlap_push() -> void:
 	var player := Global.player
 	if not player or is_dead:
@@ -171,12 +198,15 @@ var attack_cooldown_timer := 0.0
 @export var aggro_leash_range := 900.0
 @export var aggro_loss_delay := 10.0
 @export var debug_show_awareness := true
+@export var reaction_delay_duration := 0.5
 
 var facing_direction := 1
 var is_aware_of_player := false
 var has_aggro := false
 var _awareness_memory_timer := 0.0
 var _aggro_loss_timer := 0.0
+var reaction_delay_timer := 0.0
+var _reaction_contact_hitbox_disabled := false
 
 @onready var attack_hitbox: DamageHitbox = get_node_or_null("AttackHitbox")
 @onready var attack_hitbox_shape: CollisionShape2D = get_node_or_null("AttackHitbox/CollisionShape2D")
@@ -196,6 +226,8 @@ func _ready() -> void:
 		queue_free()
 		return
 
+	if block_profile == null:
+		block_profile = EnemyBlock.new()
 	current_health = max_health
 
 	if has_node("Hitbox"):
@@ -223,12 +255,25 @@ func is_attacking() -> bool:
 
 
 func can_start_attack() -> bool:
-	return not is_dead and attack_phase == AttackPhase.NONE and attack_cooldown_timer <= 0.0 and attack_profile != null
+	return not is_dead \
+		and attack_phase == AttackPhase.NONE \
+		and attack_cooldown_timer <= 0.0 \
+		and block_attack_lockout_timer <= 0.0 \
+		and guard_break_timer <= 0.0 \
+		and reaction_delay_timer <= 0.0 \
+		and stun_timer <= 0.0 \
+		and knockback_stun_timer <= 0.0 \
+		and attack_profile != null
+
+
+func is_reacting_to_player() -> bool:
+	return reaction_delay_timer > 0.0
 
 
 func start_attack() -> void:
 	if not can_start_attack():
 		return
+	_begin_attack()
 	attack_phase = AttackPhase.STARTUP
 	attack_phase_timer = attack_profile.startup_duration
 	# Suppress the passive contact hitbox for the whole attack — otherwise it
@@ -266,7 +311,13 @@ func _tick_attack(delta: float) -> void:
 
 
 func _update_awareness(delta: float) -> void:
+	reaction_delay_timer = maxf(reaction_delay_timer - delta, 0.0)
 	if _can_see_player():
+		if not has_aggro and reaction_delay_duration > 0.0:
+			reaction_delay_timer = reaction_delay_duration
+			if contact_hitbox_shape:
+				contact_hitbox_shape.set_deferred("disabled", true)
+				_reaction_contact_hitbox_disabled = true
 		is_aware_of_player = true
 		has_aggro = true
 		_awareness_memory_timer = awareness_memory_time
@@ -283,6 +334,10 @@ func _update_awareness(delta: float) -> void:
 			_aggro_loss_timer = aggro_loss_delay
 			is_aware_of_player = true
 
+	if reaction_delay_timer <= 0.0 and _reaction_contact_hitbox_disabled:
+		contact_hitbox_shape.set_deferred("disabled", false)
+		_reaction_contact_hitbox_disabled = false
+
 	if debug_show_awareness:
 		queue_redraw()
 
@@ -292,36 +347,32 @@ func _update_awareness(delta: float) -> void:
 # aggro'd (red outline). Toggle debug_show_awareness off per-enemy, or flip
 # the default above, once you're done tuning these values.
 func _draw() -> void:
-	if not debug_show_awareness:
-		return
+	if debug_show_awareness:
+		var cone_color := Color(1.0, 0.15, 0.15, 0.18) if has_aggro else Color(1.0, 0.9, 0.2, 0.18)
+		var facing_vec := Vector2(float(facing_direction), 0.0)
+		var half_angle := deg_to_rad(sight_angle_degrees * 0.5)
+		var segments := 20
+		var points := PackedVector2Array()
+		points.append(Vector2.ZERO)
+		var space := get_world_2d().direct_space_state
+		for i in range(segments + 1):
+			var t: float = lerp(-half_angle, half_angle, float(i) / float(segments))
+			var dir := facing_vec.rotated(t)
+			var reach := sight_range
+			var params := PhysicsRayQueryParameters2D.new()
+			params.from = global_position
+			params.to = global_position + dir * sight_range
+			params.collision_mask = 1
+			params.exclude = [self]
+			var hit := space.intersect_ray(params)
+			if hit:
+				reach = global_position.distance_to(hit.position)
+			points.append(dir * reach)
+		draw_colored_polygon(points, cone_color)
+		draw_arc(Vector2.ZERO, close_range_awareness, 0.0, TAU, 24, Color(1.0, 1.0, 1.0, 0.6), 2.0)
 
-	var cone_color := Color(1.0, 0.15, 0.15, 0.18) if has_aggro else Color(1.0, 0.9, 0.2, 0.18)
-	var facing_vec := Vector2(float(facing_direction), 0.0)
-	var half_angle := deg_to_rad(sight_angle_degrees * 0.5)
-	var segments := 20
-	var points := PackedVector2Array()
-	points.append(Vector2.ZERO)
-	var space := get_world_2d().direct_space_state
-	for i in range(segments + 1):
-		var t: float = lerp(-half_angle, half_angle, float(i) / float(segments))
-		var dir := facing_vec.rotated(t)
-		var reach := sight_range
-		var params := PhysicsRayQueryParameters2D.new()
-		params.from = global_position
-		params.to = global_position + dir * sight_range
-		params.collision_mask = 1  # World only — same mask the real sight check uses
-		params.exclude = [self]
-		var hit := space.intersect_ray(params)
-		if hit:
-			reach = global_position.distance_to(hit.position)
-		points.append(dir * reach)
-	draw_colored_polygon(points, cone_color)
-
-	draw_arc(Vector2.ZERO, close_range_awareness, 0.0, TAU, 24, Color(1.0, 1.0, 1.0, 0.6), 2.0)
-
-	if has_aggro:
-		draw_arc(Vector2.ZERO, aggro_leash_range, 0.0, TAU, 48, Color(1.0, 0.2, 0.2, 0.4), 2.0)
-
+		if has_aggro:
+			draw_arc(Vector2.ZERO, aggro_leash_range, 0.0, TAU, 48, Color(1.0, 0.2, 0.2, 0.4), 2.0)
 
 # Fully drops aggro/awareness — wired to the agent's own VisibleOnScreenEnabler2D
 # "screen_exited" signal, so going off-screen currently resets tracking rather
@@ -365,9 +416,6 @@ func _has_clear_sight_line() -> bool:
 func _on_hurtbox_area_entered(area: Area2D) -> void:
 	if area is DamageHitbox:
 		var hitbox := area as DamageHitbox
-		var auto_parried := hitbox.is_parryable and _can_auto_parry_player_hit()
-		if auto_parried:
-			_on_auto_parry_player_hit()
 		await Global.hitstop(Global.frames_to_seconds(player_hit_hitstop_frames))
 		if is_dead or not is_instance_valid(hitbox):
 			return
@@ -379,36 +427,37 @@ func _on_hurtbox_area_entered(area: Area2D) -> void:
 			var horizontal_dir := signf(away_x) if absf(away_x) > 1.0 else 1.0
 			knockback_dir = Vector2(horizontal_dir, -hitbox.knockback_vertical_ratio).normalized()
 		var knockback := knockback_dir * hitbox.knockback_force
-		take_damage(hitbox.damage, knockback, hitbox.is_parryable, true, auto_parried)
+		take_damage(hitbox.damage, knockback)
 
 
-func take_damage(amount: float, knockback: Vector2 = Vector2.ZERO, parryable := true, from_player := false, auto_parried := false) -> void:
+func take_damage(amount: float, knockback: Vector2 = Vector2.ZERO) -> void:
 	if is_dead:
 		return
 
-	var was_parried := parryable and (_consume_parry_hit() or auto_parried)
-	if not was_parried and parryable and from_player and _can_auto_parry_player_hit():
-		_on_auto_parry_player_hit()
-		was_parried = true
+	var blocked_hit := is_blocking()
 	var applied_knockback_stun_duration := knockback_stun_duration
-	if was_parried:
-		amount *= parry_damage_multiplier
-		knockback *= parry_knockback_multiplier
-		applied_knockback_stun_duration = parry_stun_duration
-	else:
-		_on_parry_sequence_break()
+	if blocked_hit:
+		amount *= block_profile.damage_multiplier
+		knockback *= block_profile.knockback_multiplier
+		applied_knockback_stun_duration = block_profile.stagger_duration
+		if not _block_attack_lockout_started:
+			block_attack_lockout_timer = block_profile.attack_lockout_duration
+			_block_attack_lockout_started = true
 
+	apply_posture_damage(block_profile.posture_damage_per_hit)
 	current_health = maxf(current_health - amount, 0.0)
 
-	# Mid-attack knockback is ignored by default so a hit or parry does not
-	# break a committed attack. Tanky enemies/attacks can opt into interruption
+	# Mid-attack knockback is ignored by default so a hit does not break a
+	# committed attack. Tanky enemies/attacks can opt into interruption
 	# through can_be_interrupted_while_attacking or AttackProfile.
 	if knockback != Vector2.ZERO:
 		if is_attacking() and _can_interrupt_current_attack():
 			_cancel_attack()
 		if not is_attacking():
 			velocity += knockback * knockback_multiplier
-			knockback_stun_timer = applied_knockback_stun_duration
+			knockback_stun_timer = maxf(knockback_stun_timer, applied_knockback_stun_duration)
+	if blocked_hit and not is_attacking():
+		knockback_stun_timer = maxf(knockback_stun_timer, applied_knockback_stun_duration)
 
 	# Getting hit always alerts the agent, even from outside its sight cone
 	# (a surprise attack from behind still gives away your position).

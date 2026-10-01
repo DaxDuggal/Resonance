@@ -28,12 +28,6 @@ class_name MeleeGroundEnemy
 @export var overhead_attack_range := 40.0
 @export var overhead_attack_max_height := 150.0
 
-@export_group("Parry")
-@export var max_consecutive_parries := 3
-@export var parry_reaction_range := 75.0
-@export var parry_vertical_tolerance := 40.0
-var consecutive_parries := 0
-
 var jump_cooldown_timer := 0.0
 var turn_lock_timer := 0.0
 var _lunge_launched := false
@@ -89,6 +83,23 @@ func _physics_process(delta: float) -> void:
 		velocity.x = 0.0
 		move_and_slide()
 		_apply_player_overlap_push()
+		_update_attack_visual()
+		return
+
+	if _tick_guard_break(delta):
+		_apply_gravity(delta)
+		velocity.x = 0.0
+		move_and_slide()
+		_apply_player_overlap_push()
+		_update_attack_visual()
+		return
+
+	if is_reacting_to_player():
+		_apply_gravity(delta)
+		velocity.x = 0.0
+		move_and_slide()
+		_apply_player_overlap_push()
+		_update_attack_visual()
 		return
 
 	jump_cooldown_timer = maxf(jump_cooldown_timer - delta, 0.0)
@@ -97,17 +108,18 @@ func _physics_process(delta: float) -> void:
 	_apply_gravity(delta)
 	_tick_attack(delta)
 	_update_attack_hitbox()
-	_update_attack_visual()
 
 	if _tick_knockback_stun(delta):
 		move_and_slide()
 		_apply_player_overlap_push()
+		_update_attack_visual()
 		return
 
 	if is_attacking():
 		_process_attack_movement(delta)
 		move_and_slide()
 		_apply_player_overlap_push()
+		_update_attack_visual()
 		return
 
 	_update_facing()
@@ -115,6 +127,7 @@ func _physics_process(delta: float) -> void:
 	_update_rays()
 
 	bt_player.update(delta)
+	_update_attack_visual()
 
 	move_and_slide()
 	_apply_player_overlap_push()
@@ -155,51 +168,26 @@ func _cancel_attack() -> void:
 		lunge_hitbox_visual.visible = false
 
 
-func can_start_parry() -> bool:
-	if not super.can_start_parry() or consecutive_parries >= max_consecutive_parries:
-		return false
-	if not Global.player or not Global.player.has_flag(Player.Flag.ATTACKING):
-		return false
-	var offset: Vector2 = Global.player.global_position - global_position
-	return offset.length() <= parry_reaction_range and absf(offset.y) <= parry_vertical_tolerance
-
-
-func _consume_parry_hit() -> bool:
-	var parry_is_open := super._consume_parry_hit()
-	if consecutive_parries >= max_consecutive_parries:
-		return false
-	if not parry_is_open:
-		return false
-	consecutive_parries += 1
-	return true
-
-
-func _can_auto_parry_player_hit() -> bool:
-	return not is_parrying() \
-		and not is_attacking() \
-		and stun_timer <= 0.0 \
-		and knockback_stun_timer <= 0.0 \
-		and consecutive_parries < max_consecutive_parries
-
-
-func _on_auto_parry_player_hit() -> void:
-	consecutive_parries += 1
-	parry_flash_timer = parry_flash_duration
-
-
-func _on_parry_sequence_break() -> void:
-	consecutive_parries = 0
-
-
 # Charging telegraph: flash red during STARTUP so the swing is readable
-# (and parryable) before it lands, otherwise back to normal.
+# before it lands, otherwise back to normal.
 func _update_attack_visual() -> void:
-	if is_parrying() or is_parry_flashing():
-		visual.modulate = Color(1.0, 0.9, 0.15)
-	elif attack_phase == AttackPhase.STARTUP and selected_attack == MeleeAttack.LUNGE:
-		visual.modulate = Color(0.25, 0.55, 1.0)
-	else:
-		visual.modulate = Color(1.0, 0.3, 0.3) if attack_phase == AttackPhase.STARTUP else Color.WHITE
+	match get_combat_state():
+		CombatState.BLOCKING:
+			visual.modulate = Color(0.15, 0.75, 0.85)
+		CombatState.GUARD_BROKEN:
+			visual.modulate = Color(1.0, 0.25, 0.65)
+		CombatState.STUNNED:
+			visual.modulate = Color(0.75, 0.75, 0.8)
+		CombatState.ATTACK_STARTUP:
+			visual.modulate = Color(0.25, 0.55, 1.0) if selected_attack == MeleeAttack.LUNGE else Color(1.0, 0.3, 0.3)
+		CombatState.ATTACK_ACTIVE:
+			visual.modulate = Color(1.0, 0.55, 0.15)
+		CombatState.ATTACK_RECOVERY:
+			visual.modulate = Color(0.65, 0.5, 0.8)
+		CombatState.KNOCKBACK:
+			visual.modulate = Color(0.95, 0.7, 0.7)
+		_:
+			visual.modulate = Color.WHITE
 
 
 # STARTUP = freeze in place (the telegraph is just stopping, no color flash).

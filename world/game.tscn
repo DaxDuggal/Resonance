@@ -380,10 +380,12 @@ visible = false
 [node name="MeleeGroundEnemy" parent="." unique_id=2004565075 instance=ExtResource("5_0tnpc")]
 position = Vector2(914, 87)
 max_health = 8.0
+block_profile = null
 
 [node name="MeleeGroundEnemy2" parent="." unique_id=1523009573 instance=ExtResource("5_0tnpc")]
 position = Vector2(1132, -171)
 max_health = 8.0
+block_profile = null
 
 [node name="FlyingEnemy" parent="." unique_id=197813680 instance=ExtResource("10_vtaks")]
 position = Vector2(1440, -1)

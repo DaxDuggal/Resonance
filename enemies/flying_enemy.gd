@@ -100,6 +100,23 @@ func _physics_process(delta: float) -> void:
 		velocity.y = clampf(velocity.y, -max_rise_speed, max_fall_speed)
 		move_and_slide()
 		_apply_player_overlap_push()
+		_update_attack_visual()
+		return
+
+	if _tick_guard_break(delta):
+		velocity.x = 0.0
+		velocity.y += gravity * delta
+		velocity.y = clampf(velocity.y, -max_rise_speed, max_fall_speed)
+		move_and_slide()
+		_apply_player_overlap_push()
+		_update_attack_visual()
+		return
+
+	if is_reacting_to_player():
+		velocity = Vector2.ZERO
+		move_and_slide()
+		_apply_player_overlap_push()
+		_update_attack_visual()
 		return
 
 	_tick_attack(delta)
@@ -107,18 +124,19 @@ func _physics_process(delta: float) -> void:
 	if _tick_knockback_stun(delta):
 		move_and_slide()
 		_apply_player_overlap_push()
+		_update_attack_visual()
 		return
-
-	_update_attack_visual()
 
 	if is_attacking():
 		_process_attack(delta)
 		move_and_slide()
 		_apply_player_overlap_push()
+		_update_attack_visual()
 		return
 
 	_apply_hover(delta)
 	bt_player.update(delta)
+	_update_attack_visual()
 
 	if absf(velocity.x) > 5.0:
 		facing_direction = int(signf(velocity.x))
@@ -130,10 +148,23 @@ func _physics_process(delta: float) -> void:
 
 # Charging telegraph: flash red during STARTUP, same as Tusker.
 func _update_attack_visual() -> void:
-	if attack_phase == AttackPhase.STARTUP and selected_attack == FlyingAttack.DIVE:
-		visual.modulate = Color(0.25, 0.55, 1.0)
-	else:
-		visual.modulate = Color(1.0, 0.3, 0.3) if attack_phase == AttackPhase.STARTUP else Color.WHITE
+	match get_combat_state():
+		CombatState.BLOCKING:
+			visual.modulate = Color(0.15, 0.75, 0.85)
+		CombatState.GUARD_BROKEN:
+			visual.modulate = Color(1.0, 0.25, 0.65)
+		CombatState.STUNNED:
+			visual.modulate = Color(0.75, 0.75, 0.8)
+		CombatState.ATTACK_STARTUP:
+			visual.modulate = Color(0.25, 0.55, 1.0) if selected_attack == FlyingAttack.DIVE else Color(1.0, 0.3, 0.3)
+		CombatState.ATTACK_ACTIVE:
+			visual.modulate = Color(1.0, 0.55, 0.15)
+		CombatState.ATTACK_RECOVERY:
+			visual.modulate = Color(0.65, 0.5, 0.8)
+		CombatState.KNOCKBACK:
+			visual.modulate = Color(0.95, 0.7, 0.7)
+		_:
+			visual.modulate = Color.WHITE
 	swipe_hitbox_visual.visible = selected_attack == FlyingAttack.SWIPE and attack_phase == AttackPhase.ACTIVE
 
 
@@ -318,6 +349,7 @@ func _is_swipe_ready() -> bool:
 func start_swipe() -> bool:
 	if not _is_swipe_ready():
 		return false
+	_begin_attack()
 	selected_attack = FlyingAttack.SWIPE
 	_update_swipe_hitbox_transform()
 	attack_phase = AttackPhase.STARTUP
