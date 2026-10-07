@@ -10,8 +10,6 @@
 [ext_resource type="PackedScene" uid="uid://cpiphvasrms15" path="res://enemies/melee_ground_enemy.tscn" id="5_0tnpc"]
 [ext_resource type="Script" uid="uid://8umksf8e80fw" path="res://addons/phantom_camera/scripts/resources/tween_resource.gd" id="5_vtaks"]
 [ext_resource type="PackedScene" uid="uid://5yibgstxx4ws" path="res://enemies/flying_enemy.tscn" id="10_vtaks"]
-[ext_resource type="PackedScene" path="res://ui/hud.tscn" id="20_hud"]
-
 [sub_resource type="TileSetAtlasSource" id="TileSetAtlasSource_lnu2h"]
 texture = ExtResource("2_yqjtg")
 0:0/0 = 0
@@ -374,8 +372,6 @@ shape = SubResource("RectangleShape2D_lq2hs")
 
 [node name="PauseMenu" parent="CanvasLayer" unique_id=1663932191 instance=ExtResource("4_lbhrr")]
 visible = false
-
-[node name="Hud" parent="." unique_id=1327645607 instance=ExtResource("20_hud")]
 
 [node name="MeleeGroundEnemy" parent="." unique_id=2004565075 instance=ExtResource("5_0tnpc")]
 position = Vector2(914, 87)

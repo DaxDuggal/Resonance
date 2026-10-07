@@ -10,6 +10,7 @@ class_name MeleeGroundEnemy
 @export_group("AI")
 @export var obstacle_check_height := 32.0
 @export var jump_cooldown := 0.4
+@export var player_standoff_distance := 28.0
 @export_group("AI/Turn Lock")
 @export var turn_lock_time := 0.35
 
@@ -22,7 +23,7 @@ class_name MeleeGroundEnemy
 @export var lunge_vertical_tolerance := 24.0
 @export var lunge_below_tolerance := 40.0
 @export var retreat_speed := 70.0
-@export var normal_attack_startup_duration := 0.25
+@export_range(0, 600, 1) var normal_attack_startup_frames := 30
 
 @export_group("Attack/Overhead")
 @export var overhead_attack_range := 40.0
@@ -77,16 +78,9 @@ func _physics_process(delta: float) -> void:
 		velocity = Vector2.ZERO
 
 	_update_awareness(delta)
+	_tick_guard_break(delta)
 
 	if _tick_stun(delta):
-		_apply_gravity(delta)
-		velocity.x = 0.0
-		move_and_slide()
-		_apply_player_overlap_push()
-		_update_attack_visual()
-		return
-
-	if _tick_guard_break(delta):
 		_apply_gravity(delta)
 		velocity.x = 0.0
 		move_and_slide()
@@ -127,6 +121,7 @@ func _physics_process(delta: float) -> void:
 	_update_rays()
 
 	bt_player.update(delta)
+	_hold_player_standoff()
 	_update_attack_visual()
 
 	move_and_slide()
@@ -184,8 +179,6 @@ func _update_attack_visual() -> void:
 			visual.modulate = Color(1.0, 0.55, 0.15)
 		CombatState.ATTACK_RECOVERY:
 			visual.modulate = Color(0.65, 0.5, 0.8)
-		CombatState.KNOCKBACK:
-			visual.modulate = Color(0.95, 0.7, 0.7)
 		_:
 			visual.modulate = Color.WHITE
 
@@ -222,7 +215,7 @@ func _process_attack_movement(_delta: float) -> void:
 func _attack_trigger_range() -> float:
 	if not attack_profile:
 		return 0.0
-	var lunge_distance := lunge_speed * attack_profile.active_duration
+	var lunge_distance := lunge_speed * Global.frames_to_seconds(attack_profile.active_frames)
 	return maxf(lunge_distance - lunge_range_margin, 0.0)
 
 
@@ -267,7 +260,7 @@ func start_normal_attack() -> bool:
 		return false
 	selected_attack = MeleeAttack.NORMAL
 	start_attack()
-	attack_phase_timer = normal_attack_startup_duration
+	attack_phase_timer = Global.frames_to_seconds(normal_attack_startup_frames)
 	return is_attacking()
 
 
@@ -334,6 +327,18 @@ func _apply_gravity(delta: float) -> void:
 
 func _player_in_range() -> bool:
 	return is_aware_of_player
+
+
+func _hold_player_standoff() -> void:
+	if not Global.player:
+		return
+	var to_player := Global.player.global_position - global_position
+	if absf(to_player.y) >= body_push_half_height + Global.player.body_push_half_height:
+		return
+	if absf(to_player.x) > player_standoff_distance:
+		return
+	if velocity.x * to_player.x > 0.0:
+		velocity.x = 0.0
 
 
 func _update_facing() -> void:

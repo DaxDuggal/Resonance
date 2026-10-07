@@ -1,6 +1,8 @@
 extends CharacterBody2D
 class_name Player
 
+signal hud_stats_changed
+
 
 enum Flag {
 	DASHING = 1 << 0,
@@ -30,7 +32,7 @@ func is_invulnerable() -> bool:
 	return invulnerability_timer > 0.0 or dash_grace_timer > 0.0
 
 func should_ignore_enemy_overlap() -> bool:
-	return has_flag(Flag.PARRYING)
+	return dash_grace_timer > 0.0
 
 @onready var facing_root: Node2D = $FacingRoot
 @onready var sprite: AnimatedSprite2D = $FacingRoot/AnimatedSprite2D
@@ -64,6 +66,7 @@ func _ready() -> void:
 		Global.saved_current_health = -1
 	else:
 		current_health = max_health
+	Global.player_registered.emit(self)
 
 	Global.last_safe_position = global_position
 
@@ -97,6 +100,11 @@ func _ready() -> void:
 		if not $Hurtbox.is_connected("body_exited", Callable(self, "_on_hazard_body_exited")):
 			$Hurtbox.connect("body_exited", Callable(self, "_on_hazard_body_exited"))
 
+func _exit_tree() -> void:
+	if Global.player == self:
+		Global.player = null
+	Global.player_unregistered.emit(self)
+
 
 @export_group("Health")
 @export var max_health := 3
@@ -117,11 +125,14 @@ var hit_flash_timer := 0.0
 
 const ENEMY_HURTBOX_LAYER := 64  # project.godot layer_7 "EnemyHurtbox"
 const ENEMY_ATTACK_HITBOX_LAYER := 16  # project.godot layer_5 "Hitbox"
+const POGO_SURFACE_LAYER := 256  # project.godot layer_9 "PogoSurface"
 
 @export_group("Attack")
 @export var attack_damage := 1
-@export var attack_duration := 0.15
-@export var attack_cooldown := 0.20
+@export_range(0, 600, 1) var attack_startup_frames := 9
+@export_range(0, 600, 1) var attack_down_startup_frames := 2
+@export_range(0, 600, 1) var attack_active_frames := 9
+@export_range(0, 600, 1) var attack_cooldown_frames := 1
 @export var attack_recoil_force := 40.0
 @export var attack_pogo_force := 300.0
 @export var attack_knockback_force := 250.0
@@ -131,6 +142,7 @@ const ENEMY_ATTACK_HITBOX_LAYER := 16  # project.godot layer_5 "Hitbox"
 @export var enemy_hit_hitstop_frames := 5
 
 var attack_state_timer := 0.0
+var attack_startup_timer := 0.0
 var attack_cooldown_timer := 0.0
 var attack_direction := Vector2.RIGHT
 var _attack_recoil_applied := false
@@ -141,11 +153,11 @@ var _attack_recoil_applied := false
 @export var fulllock_frames := 5
 @export var movement_lock_frames := 5
 @export var parry_heal_amount := 0.25
+@export_range(0.0, 1.0, 0.05) var parry_ground_speed_multiplier := 0.75
 
 # Unused for now
 @export var parry_damage := 0.5
 @export var parry_knockback_force := 270.0
-@export var parry_stun_frames := 45
 
 var parry_state_timer := 0.0
 var parry_cooldown_timer := 0.0
@@ -163,7 +175,7 @@ var current_meter := 0
 
 @export_group("Special")
 @export var special_damage := 3
-@export var special_duration := 0.4
+@export_range(0, 600, 1) var special_duration_frames := 24
 
 var special_state_timer := 0.0
 
@@ -321,6 +333,7 @@ func _physics_process(delta: float) -> void:
 		input_x = 0.0
 		input_y = 0.0
 	_handle_invulnerability(delta)
+	_update_combat_timers(delta)
 	var jump_consumed := 0
 	_handle_input_buffers(jump_pressed, dash_pressed, grounded)
 	_handle_dash_start(input_x, input_y)
@@ -363,7 +376,7 @@ func _sync_hitbox_visual_to_shape(shape: CollisionShape2D, visual: ColorRect) ->
 
 
 func _update_attack_hitboxes() -> void:
-	var attacking := has_flag(Flag.ATTACKING)
+	var attacking := has_flag(Flag.ATTACKING) and attack_startup_timer <= 0.0
 	var horizontal_attacking := attacking and attack_direction != Vector2.UP and attack_direction != Vector2.DOWN
 	var attacking_up := attacking and attack_direction == Vector2.UP
 	var attacking_down := attacking and attack_direction == Vector2.DOWN
@@ -391,6 +404,7 @@ func _on_attack_hitbox_area_entered(area: Area2D) -> void:
 	var recoil_multiplier := 1.0
 	if area.collision_layer & ENEMY_HURTBOX_LAYER:
 		current_meter = mini(current_meter + 1, max_meter)
+		hud_stats_changed.emit()
 		Global.hitstop(attack_hitstop_duration)
 		var enemy := area.get_parent() as Enemy
 		if enemy:
@@ -402,8 +416,17 @@ func _on_attack_hitbox_area_entered(area: Area2D) -> void:
 	_apply_attack_hit_recoil(recoil_multiplier)
 
 
-func _on_attack_hitbox_body_entered(_body: Node) -> void:
+func _on_attack_hitbox_body_entered(body: Node2D) -> void:
 	if attack_direction == Vector2.DOWN:
+		var combined_collision_layers := 0
+		if body is TileMapLayer and body.tile_set:
+			for layer_index in body.tile_set.get_physics_layers_count():
+				combined_collision_layers |= body.tile_set.get_physics_layer_collision_layer(layer_index)
+		elif body is CollisionObject2D:
+			combined_collision_layers = body.collision_layer
+
+		if (combined_collision_layers & POGO_SURFACE_LAYER) != 0:
+			_apply_attack_hit_recoil()
 		return
 
 	_apply_attack_hit_recoil()
@@ -514,8 +537,9 @@ func _handle_attack_start(attack_pressed: bool, input_y: float) -> void:
 		attack_direction = Vector2(facing_direction, 0.0)
 
 	set_flag(Flag.ATTACKING, true)
-	attack_state_timer = attack_duration
-	attack_cooldown_timer = attack_cooldown
+	var startup_frames := attack_down_startup_frames if attack_direction == Vector2.DOWN else attack_startup_frames
+	attack_startup_timer = Global.frames_to_seconds(startup_frames)
+	attack_state_timer = Global.frames_to_seconds(attack_active_frames) if attack_startup_timer <= 0.0 else 0.0
 	_attack_recoil_applied = false
 
 
@@ -526,8 +550,15 @@ func _handle_parry_start(parry_pressed: bool) -> void:
 	if not parry_pressed or parry_cooldown_timer > 0.0 or has_flag(Flag.PARRYING):
 		return
 
-	if has_flag(Flag.HURT | Flag.DEAD | Flag.DASHING | Flag.ATTACKING):
+	if has_flag(Flag.HURT | Flag.DEAD | Flag.DASHING):
 		return
+
+	if has_flag(Flag.ATTACKING):
+		if attack_startup_timer <= 0.0:
+			return
+		set_flag(Flag.ATTACKING, false)
+		attack_startup_timer = 0.0
+		attack_state_timer = 0.0
 
 	_cancel_jump_squat()
 	set_flag(Flag.PARRYING, true)
@@ -550,8 +581,9 @@ func _handle_special_start(special_pressed: bool) -> void:
 
 	_cancel_jump_squat()
 	current_meter = 0
+	hud_stats_changed.emit()
 	set_flag(Flag.SPECIAL, true)
-	special_state_timer = special_duration
+	special_state_timer = Global.frames_to_seconds(special_duration_frames)
 
 
 func _handle_checkpoint(grounded: bool) -> void:
@@ -595,6 +627,7 @@ func _check_ledge_refill() -> void:
 	params.from = global_position
 	params.to = global_position + Vector2(0.0, dash_ledge_check_distance)
 	params.exclude = [self]
+	params.collision_mask = 1  # World only
 	if space.intersect_ray(params):
 		dash_available = true
 
@@ -642,10 +675,6 @@ func _handle_normal_movement(input_x: float, grounded: bool, delta: float, was_d
 	if has_flag(Flag.MOVEMENT_LOCK):
 		input_x = 0.0
 
-	if has_flag(Flag.PARRYING) and grounded:
-		velocity.x = 0.0
-		return
-
 	var direction := input_x
 	var accel := acceleration if grounded else air_acceleration
 	var fric := friction if grounded else air_friction
@@ -654,6 +683,9 @@ func _handle_normal_movement(input_x: float, grounded: bool, delta: float, was_d
 		facing_direction = int(sign(direction))
 
 	var max_spd := max_speed if grounded else max_air_speed
+	if grounded and has_flag(Flag.PARRYING):
+		max_spd *= parry_ground_speed_multiplier
+		velocity.x = clampf(velocity.x, -max_spd, max_spd)
 	var target_speed := direction * max_spd
 
 	if wall_jump_control_lock_timer > 0.0 or control_lock_timer > 0.0 or respawn_lock_timer > 0.0:
@@ -920,20 +952,27 @@ func _update_timers(delta: float) -> void:
 	if respawn_lock_timer > 0.0:
 		respawn_lock_timer = tick_timer(respawn_lock_timer, delta)
 
-	if attack_state_timer > 0.0:
+	parry_flash_timer = tick_timer(parry_flash_timer, delta)
+
+
+func _update_combat_timers(delta: float) -> void:
+	attack_cooldown_timer = tick_timer(attack_cooldown_timer, delta)
+	if has_flag(Flag.ATTACKING) and attack_startup_timer > 0.0:
+		attack_startup_timer = tick_timer(attack_startup_timer, delta)
+		if attack_startup_timer <= 0.0:
+			attack_state_timer = Global.frames_to_seconds(attack_active_frames)
+	elif attack_state_timer > 0.0:
 		attack_state_timer = tick_timer(attack_state_timer, delta)
 		if attack_state_timer <= 0.0:
 			set_flag(Flag.ATTACKING, false)
+			attack_cooldown_timer = Global.frames_to_seconds(attack_cooldown_frames)
 
-	attack_cooldown_timer = tick_timer(attack_cooldown_timer, delta)
 	if parry_state_timer > 0.0:
 		parry_state_timer = tick_timer(parry_state_timer, delta)
 		if parry_state_timer <= 0.0:
 			set_flag(Flag.PARRYING, false)
 			_start_fulllock()
-
 	parry_cooldown_timer = tick_timer(parry_cooldown_timer, delta)
-	parry_flash_timer = tick_timer(parry_flash_timer, delta)
 
 	if special_state_timer > 0.0:
 		special_state_timer = tick_timer(special_state_timer, delta)
@@ -1079,6 +1118,7 @@ func take_damage(amount: int = 1, knockback: Vector2 = Vector2.ZERO, lock_action
 	_cancel_jump_squat()
 	_jump_arc_active = false
 	current_health = maxi(current_health - amount, 0)
+	hud_stats_changed.emit()
 	invulnerability_timer = invulnerability_duration
 	if lock_actions:
 		set_flag(Flag.HURT, true)
@@ -1142,13 +1182,14 @@ func _on_parry_success(source_hitbox: Area2D = null) -> void:
 	parry_flash_timer = PARRY_FLASH_DURATION
 
 	current_meter = mini(current_meter + 1, max_meter)
+	hud_stats_changed.emit()
 
 	if source_hitbox:
 		var enemy := source_hitbox.get_parent() as Enemy
 		if enemy:
+			enemy.cancel_attack()
 			if enemy.block_profile:
 				enemy.apply_posture_damage(enemy.block_profile.posture_damage_on_parry)
-			enemy.stun(Global.frames_to_seconds(parry_stun_frames))
 
 func _on_hitbox_body_entered(_body: Node2D) -> void:
 	hazard_hit()
@@ -1223,6 +1264,7 @@ func dead() -> void:
 	set_flag(Flag.DEAD, true)
 	set_flag(Flag.HURT, false)
 	current_health = max_health
+	hud_stats_changed.emit()
 	Global.death_count += 1
 	Global.did_just_die = true
 	Engine.time_scale = 0.7

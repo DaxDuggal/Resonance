@@ -1,5 +1,10 @@
 extends Node
 
+@warning_ignore("unused_signal")
+signal player_registered(player: Node)
+@warning_ignore("unused_signal")
+signal player_unregistered(player: Node)
+
 var player: Player
 var is_paused: bool = false
 var last_safe_position: Vector2 = Vector2.ZERO
@@ -37,6 +42,8 @@ func get_max_health() -> int:
 # Counter-based so overlapping calls (e.g. two hits landing back to back)
 # don't have the shorter one prematurely un-freeze the longer one.
 var _hitstop_count := 0
+# Invalidates timeout callbacks from hitstops that were active at reset time.
+var _hitstop_generation := 0
 
 # ---------- Frame-based durations ----------
 # Lets a timing value be authored as "N frames" (at the project's fixed
@@ -62,10 +69,13 @@ func hitstop(duration: float) -> void:
 		return
 	duration = minf(duration, 2.0)  # sanity cap — no legitimate hitstop is this long
 
+	var generation := _hitstop_generation
 	_hitstop_count += 1
 	Engine.time_scale = 0.0
 	var timer := get_tree().create_timer(duration, true, false, true)
 	await timer.timeout
+	if generation != _hitstop_generation:
+		return
 	_hitstop_count = maxi(_hitstop_count - 1, 0)
 	if _hitstop_count == 0:
 		Engine.time_scale = 1.0
@@ -76,5 +86,6 @@ func hitstop(duration: float) -> void:
 # pauseMenu.gd's restart handler) so a hitstop that was mid-flight at that
 # moment can't leave Engine.time_scale stuck at 0 for the next scene.
 func reset_hitstop() -> void:
+	_hitstop_generation += 1
 	_hitstop_count = 0
 	Engine.time_scale = 1.0

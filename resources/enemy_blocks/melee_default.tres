@@ -4,6 +4,6 @@
 
 [resource]
 script = ExtResource("1")
+damage_multiplier = 0.0
 max_posture = 100.0
 posture_regen_rate = 20.0
-posture_after_guard_break = 35.0

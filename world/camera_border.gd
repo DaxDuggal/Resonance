@@ -78,7 +78,15 @@ func _on_body_exited(body: Node2D) -> void:
 		return
 
 	phantom_camera.set_priority(0)
-	phantom_camera.reset_limit()
-	phantom_camera.set_limit_target(NodePath(""))
+	var camera_host := _active_player.get_node_or_null("Camera2D/PhantomCameraHost")
+	if camera_host == null or not camera_host.has_method("get_active_pcam"):
+		push_warning("CameraBorder: could not find the Player's PhantomCameraHost to restore camera limits.")
+	else:
+		var active_camera: Node = camera_host.call("get_active_pcam")
+		if active_camera is PhantomCamera2D:
+			active_camera.update_limit_all_sides()
+		else:
+			push_warning("CameraBorder: no active PhantomCamera2D was available to restore camera limits.")
+
 	phantom_camera.set_follow_target(null)
 	_active_player = null

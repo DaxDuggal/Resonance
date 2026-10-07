@@ -42,7 +42,10 @@ func _load_on_boot() -> void:
 
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_WM_CLOSE_REQUEST:
-		save_game(current_slot)
+		# The start menu has no player instance. Saving there would serialize
+		# Global.get_current_health() as 0 and overwrite the existing slot.
+		if is_instance_valid(Global.player):
+			save_game(current_slot)
 		get_tree().quit()
 
 

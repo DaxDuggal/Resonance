@@ -255,10 +255,10 @@ animations = [{
 size = Vector2(25.900843, 21.423805)
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_attack_up"]
-size = Vector2(20.164307, 14.078501)
+size = Vector2(26.897503, 17.139042)
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_attack_down"]
-size = Vector2(16.911491, 15.914826)
+size = Vector2(22.420471, 19.58748)
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_parry"]
 size = Vector2(9.181631, 21.423805)
@@ -320,7 +320,7 @@ collision_mask = 320
 script = ExtResource("3_dmghb")
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="FacingRoot/AttackUpHitbox" unique_id=-1293966288]
-position = Vector2(-1.6264095, -0.30605435)
+position = Vector2(-4.9930067, -1.8363253)
 shape = SubResource("RectangleShape2D_attack_up")
 disabled = true
 debug_color = Color(1, 0.2, 0.2, 0.5)
@@ -341,7 +341,7 @@ collision_mask = 336
 script = ExtResource("3_dmghb")
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="FacingRoot/AttackDownHitbox" unique_id=-1293966285]
-position = Vector2(-4.7045946, 2.3117985e-07)
+position = Vector2(-1.7578269, 2.3841858e-07)
 shape = SubResource("RectangleShape2D_attack_down")
 disabled = true
 debug_color = Color(1, 0.2, 0.2, 0.5)

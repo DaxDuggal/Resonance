@@ -12,6 +12,7 @@ func pause() -> void:
 	get_tree().paused = true
 	Global.is_paused = true
 	visible = true
+	$PanelContainer/VBoxContainer/Resume.call_deferred("grab_focus")
 
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_WM_WINDOW_FOCUS_OUT and not get_tree().paused:

@@ -20,13 +20,14 @@ var knockback_stun_timer := 0.0
 
 @export_group("Block")
 @export var block_profile: EnemyBlock
+@export_range(0.1, 60.0) var posture_recovery_time := 7.0
 var block_attack_lockout_timer := 0.0
 var _block_attack_lockout_started := false
 var posture := 0.0
 var posture_regen_timer := 0.0
 var guard_break_timer := 0.0
 
-enum CombatState { NEUTRAL, BLOCKING, ATTACK_STARTUP, ATTACK_ACTIVE, ATTACK_RECOVERY, GUARD_BROKEN, STUNNED, KNOCKBACK }
+enum CombatState { NEUTRAL, BLOCKING, ATTACK_STARTUP, ATTACK_ACTIVE, ATTACK_RECOVERY, GUARD_BROKEN, STUNNED }
 
 @export_group("Hurt")
 @export var player_hit_hitstop_frames := 5
@@ -40,6 +41,12 @@ func stun(duration: float) -> void:
 	stun_timer = maxf(stun_timer, duration)
 	if is_attacking():
 		_cancel_attack()
+
+
+func cancel_attack() -> void:
+	if is_attacking():
+		_cancel_attack()
+
 
 func _tick_stun(delta: float) -> bool:
 	if stun_timer <= 0.0:
@@ -56,7 +63,7 @@ func _cancel_attack() -> void:
 	if contact_hitbox_shape:
 		contact_hitbox_shape.set_deferred("disabled", false)
 	if attack_profile:
-		attack_cooldown_timer = attack_profile.cooldown
+		attack_cooldown_timer = Global.frames_to_seconds(attack_profile.cooldown_frames)
 
 
 func _can_interrupt_current_attack() -> bool:
@@ -82,8 +89,6 @@ func is_blocking() -> bool:
 func get_combat_state() -> CombatState:
 	if is_dead:
 		return CombatState.NEUTRAL
-	if guard_break_timer > 0.0:
-		return CombatState.GUARD_BROKEN
 	if stun_timer > 0.0:
 		return CombatState.STUNNED
 	if is_attacking():
@@ -94,29 +99,26 @@ func get_combat_state() -> CombatState:
 				return CombatState.ATTACK_ACTIVE
 			AttackPhase.RECOVERY:
 				return CombatState.ATTACK_RECOVERY
+	if guard_break_timer > 0.0:
+		return CombatState.GUARD_BROKEN
 	if is_blocking():
 		return CombatState.BLOCKING
-	if knockback_stun_timer > 0.0:
-		return CombatState.KNOCKBACK
 	return CombatState.NEUTRAL
 
 
-func _tick_guard_break(delta: float) -> bool:
+func _tick_guard_break(delta: float) -> void:
 	if guard_break_timer <= 0.0:
-		return false
+		return
 	guard_break_timer = maxf(guard_break_timer - delta, 0.0)
+	var recovery_duration := maxf(posture_recovery_time, 0.1)
+	posture = maxf(posture - block_profile.max_posture / recovery_duration * delta, 0.0)
 	if guard_break_timer <= 0.0:
-		posture = minf(posture, block_profile.posture_after_guard_break)
+		posture = 0.0
 		posture_regen_timer = block_profile.posture_regen_delay
-		return false
-	return true
 
 
 func _break_guard() -> void:
-	guard_break_timer = block_profile.guard_break_duration
-	block_attack_lockout_timer = maxf(block_attack_lockout_timer, guard_break_timer)
-	if is_attacking():
-		_cancel_attack()
+	guard_break_timer = maxf(posture_recovery_time, 0.1)
 
 
 func apply_posture_damage(amount: float) -> void:
@@ -139,8 +141,8 @@ func block_player_recoil_multiplier() -> float:
 
 
 # Call every physics frame (subclasses call this after their own
-# move_and_slide()) so the player and this enemy never overlap, except when
-# the player is in a state that intentionally ignores enemy overlap.
+# move_and_slide()) so the player and this enemy never overlap, except during
+# the player's dash grace window.
 func _apply_player_overlap_push() -> void:
 	var player := Global.player
 	if not player or is_dead:
@@ -258,8 +260,7 @@ func can_start_attack() -> bool:
 	return not is_dead \
 		and attack_phase == AttackPhase.NONE \
 		and attack_cooldown_timer <= 0.0 \
-		and block_attack_lockout_timer <= 0.0 \
-		and guard_break_timer <= 0.0 \
+		and (block_attack_lockout_timer <= 0.0 or guard_break_timer > 0.0) \
 		and reaction_delay_timer <= 0.0 \
 		and stun_timer <= 0.0 \
 		and knockback_stun_timer <= 0.0 \
@@ -275,7 +276,7 @@ func start_attack() -> void:
 		return
 	_begin_attack()
 	attack_phase = AttackPhase.STARTUP
-	attack_phase_timer = attack_profile.startup_duration
+	attack_phase_timer = Global.frames_to_seconds(attack_profile.startup_frames)
 	# Suppress the passive contact hitbox for the whole attack — otherwise it
 	# and AttackHitbox can both be overlapping the player at once and double-hit.
 	if contact_hitbox_shape:
@@ -295,17 +296,17 @@ func _tick_attack(delta: float) -> void:
 	match attack_phase:
 		AttackPhase.STARTUP:
 			attack_phase = AttackPhase.ACTIVE
-			attack_phase_timer = attack_profile.active_duration
+			attack_phase_timer = Global.frames_to_seconds(attack_profile.active_frames)
 			if attack_hitbox_shape:
 				attack_hitbox_shape.disabled = false
 		AttackPhase.ACTIVE:
 			attack_phase = AttackPhase.RECOVERY
-			attack_phase_timer = attack_profile.recovery_duration
+			attack_phase_timer = Global.frames_to_seconds(attack_profile.recovery_frames)
 			if attack_hitbox_shape:
 				attack_hitbox_shape.disabled = true
 		AttackPhase.RECOVERY:
 			attack_phase = AttackPhase.NONE
-			attack_cooldown_timer = attack_profile.cooldown
+			attack_cooldown_timer = Global.frames_to_seconds(attack_profile.cooldown_frames)
 			if contact_hitbox_shape:
 				contact_hitbox_shape.disabled = false
 
@@ -374,12 +375,19 @@ func _draw() -> void:
 		if has_aggro:
 			draw_arc(Vector2.ZERO, aggro_leash_range, 0.0, TAU, 48, Color(1.0, 0.2, 0.2, 0.4), 2.0)
 
-# Fully drops aggro/awareness — wired to the agent's own VisibleOnScreenEnabler2D
-# "screen_exited" signal, so going off-screen currently resets tracking rather
-# than just pausing it (it comes back with a clean slate next time it's seen).
+# Fully drops aggro/awareness when the agent leaves the screen, so it reacquires
+# the player and starts a fresh reaction delay when it becomes visible again.
 func _clear_aggro() -> void:
-	if has_aggro:
-		_aggro_loss_timer = aggro_loss_delay
+	has_aggro = false
+	is_aware_of_player = false
+	_awareness_memory_timer = 0.0
+	_aggro_loss_timer = 0.0
+	reaction_delay_timer = 0.0
+	if _reaction_contact_hitbox_disabled and contact_hitbox_shape:
+		contact_hitbox_shape.set_deferred("disabled", false)
+	_reaction_contact_hitbox_disabled = false
+	if debug_show_awareness:
+		queue_redraw()
 
 
 func _can_see_player() -> bool:
@@ -461,6 +469,8 @@ func take_damage(amount: float, knockback: Vector2 = Vector2.ZERO) -> void:
 
 	# Getting hit always alerts the agent, even from outside its sight cone
 	# (a surprise attack from behind still gives away your position).
+	if not has_aggro:
+		reaction_delay_timer = reaction_delay_duration
 	has_aggro = true
 	is_aware_of_player = true
 	_awareness_memory_timer = awareness_memory_time

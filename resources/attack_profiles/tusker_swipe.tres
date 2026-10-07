@@ -4,8 +4,8 @@
 
 [resource]
 script = ExtResource("1")
-startup_duration = 0.55
-active_duration = 0.25
-recovery_duration = 0.4
-cooldown = 0.6
-knockback_force = 260.0
+startup_frames = 33
+active_frames = 15
+recovery_frames = 24
+cooldown_frames = 36
+knockback_force = 65.0

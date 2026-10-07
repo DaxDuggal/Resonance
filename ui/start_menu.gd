@@ -3,6 +3,9 @@ extends Control
 # Placeholder start screen (see TODO_ORDERED.md Phase 1) — just a full-screen
 # rect and two buttons for now, no art/layout pass yet.
 
+func _ready() -> void:
+	$VBoxContainer/StartButton.call_deferred("grab_focus")
+
 func _on_start_pressed() -> void:
 	# A hitstop can survive scene setup/teardown between menus and gameplay,
 	# so clear it before entering the game scene.

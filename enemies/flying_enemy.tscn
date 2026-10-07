@@ -89,6 +89,7 @@ collision_layer = 4
 script = ExtResource("1")
 attack_profile = ExtResource("10_atkprof")
 block_profile = ExtResource("11_block")
+posture_recovery_time = 10.0
 
 [node name="Placeholder" type="Polygon2D" parent="." unique_id=1990793092]
 color = Color(0.2, 0.3, 0.85, 1)

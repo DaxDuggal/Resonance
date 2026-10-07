@@ -24,9 +24,9 @@ var hop_timer := 0.0
 @export var swipe_vertical_tolerance := 55.0
 @export var swipe_approach_speed := 200.0
 @export var swipe_vertical_approach_speed := 420.0
-@export var swipe_startup_duration := 0.28
-@export var swipe_active_duration := 0.16
-@export var swipe_recovery_duration := 0.28
+@export_range(0, 600, 1) var swipe_startup_frames := 17
+@export_range(0, 600, 1) var swipe_active_frames := 10
+@export_range(0, 600, 1) var swipe_recovery_frames := 17
 
 @export_group("Dive Attack")
 @export var dive_horizontal_distance := 200.0
@@ -91,19 +91,11 @@ func _physics_process(delta: float) -> void:
 		velocity = Vector2.ZERO
 
 	_update_awareness(delta)
+	_tick_guard_break(delta)
 
 	if _tick_stun(delta):
 		# Stunned means it can't flap — falls like a stone instead of
 		# hovering, rather than being pinned in mid-air.
-		velocity.x = 0.0
-		velocity.y += gravity * delta
-		velocity.y = clampf(velocity.y, -max_rise_speed, max_fall_speed)
-		move_and_slide()
-		_apply_player_overlap_push()
-		_update_attack_visual()
-		return
-
-	if _tick_guard_break(delta):
 		velocity.x = 0.0
 		velocity.y += gravity * delta
 		velocity.y = clampf(velocity.y, -max_rise_speed, max_fall_speed)
@@ -161,8 +153,6 @@ func _update_attack_visual() -> void:
 			visual.modulate = Color(1.0, 0.55, 0.15)
 		CombatState.ATTACK_RECOVERY:
 			visual.modulate = Color(0.65, 0.5, 0.8)
-		CombatState.KNOCKBACK:
-			visual.modulate = Color(0.95, 0.7, 0.7)
 		_:
 			visual.modulate = Color.WHITE
 	swipe_hitbox_visual.visible = selected_attack == FlyingAttack.SWIPE and attack_phase == AttackPhase.ACTIVE
@@ -316,8 +306,8 @@ func _process_attack(delta: float) -> void:
 				_dive_launched = true
 
 			var duration := 1.0
-			if attack_profile and attack_profile.active_duration > 0.0:
-				duration = attack_profile.active_duration
+			if attack_profile and attack_profile.active_frames > 0:
+				duration = Global.frames_to_seconds(attack_profile.active_frames)
 			var t := clampf(1.0 - (attack_phase_timer / duration), 0.0, 1.0)
 			var deriv := _bezier_derivative(_dive_p0, _dive_p1, _dive_p2, _dive_p3, t)
 			velocity = deriv / duration
@@ -353,7 +343,7 @@ func start_swipe() -> bool:
 	selected_attack = FlyingAttack.SWIPE
 	_update_swipe_hitbox_transform()
 	attack_phase = AttackPhase.STARTUP
-	attack_phase_timer = swipe_startup_duration
+	attack_phase_timer = Global.frames_to_seconds(swipe_startup_frames)
 	if contact_hitbox_shape:
 		contact_hitbox_shape.disabled = true
 	return true
@@ -420,17 +410,17 @@ func _tick_attack(delta: float) -> void:
 	match attack_phase:
 		AttackPhase.STARTUP:
 			attack_phase = AttackPhase.ACTIVE
-			attack_phase_timer = swipe_active_duration
+			attack_phase_timer = Global.frames_to_seconds(swipe_active_frames)
 			if swipe_hitbox_shape:
 				swipe_hitbox_shape.disabled = false
 		AttackPhase.ACTIVE:
 			attack_phase = AttackPhase.RECOVERY
-			attack_phase_timer = swipe_recovery_duration
+			attack_phase_timer = Global.frames_to_seconds(swipe_recovery_frames)
 			if swipe_hitbox_shape:
 				swipe_hitbox_shape.disabled = true
 		AttackPhase.RECOVERY:
 			attack_phase = AttackPhase.NONE
-			attack_cooldown_timer = attack_profile.cooldown
+			attack_cooldown_timer = Global.frames_to_seconds(attack_profile.cooldown_frames)
 			if contact_hitbox_shape:
 				contact_hitbox_shape.disabled = false
 			selected_attack = FlyingAttack.NONE
